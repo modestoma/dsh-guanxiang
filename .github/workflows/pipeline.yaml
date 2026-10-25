@@ -5,6 +5,8 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
+    # `edited` re-validates a title-only change.
+    types: [opened, synchronize, reopened, edited]
   # Releases run only from a manual dispatch on main (stable) or dev (beta).
   workflow_dispatch:
     inputs:
