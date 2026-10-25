@@ -1,0 +1,8 @@
+2026-10-24 21:03:11.204 INFO  [http-nio-8080-exec-7] [7f3a9c21] c.e.order.OrderController - POST /orders userId=u_10086 items=2
+2026-10-24 21:03:11.209 INFO  [http-nio-8080-exec-7] [7f3a9c21] c.e.order.OrderService - draft order created orderId=O20261024210311
+2026-10-24 21:03:11.214 INFO  [http-nio-8080-exec-7] [7f3a9c21] c.e.order.InventoryClient - deduct sku=SKU-1001 qty=1 ok
+2026-10-24 21:03:11.215 ERROR [http-nio-8080-exec-7] [7f3a9c21] c.e.order.OrderController - create order failed
+java.lang.NullPointerException: Cannot invoke "String.trim()" because the return value of "com.example.order.OrderItem.getSku()" is null
+	at com.example.order.OrderService.create(OrderService.java:18)
+	at com.example.order.OrderController.createOrder(OrderController.java:13)
+2026-10-24 21:03:11.216 INFO  [http-nio-8080-exec-7] [7f3a9c21] c.e.order.OrderController - response status=500 elapsed=12ms

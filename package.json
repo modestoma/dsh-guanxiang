@@ -1,0 +1,89 @@
+{
+  "name": "@modesto_ma/dsh-guanxiang",
+  "version": "0.0.0",
+  "description": "观象 GuanXiang：DeepSeek Harness (DSH) 日志分析插件。/guanxiang 识别日志所属应用，把分析派发给工作目录为该应用代码仓库的子 Agent；Web 左侧栏提供「观象」设置面板",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modestoma/dsh-guanxiang.git"
+  },
+  "packageManager": "pnpm@12.15.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./src/client/index.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "lib",
+    "examples",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.client.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:host": "tsdown --config tsdown.config.ts",
+    "build:client": "tsdown --config tsdown.client.config.ts",
+    "build": "pnpm build:host && pnpm build:client",
+    "verify:host": "node scripts/verify-host-loader.mjs",
+    "verify:client": "node scripts/verify-client-loader.mjs",
+    "prepack": "pnpm build",
+    "check": "pnpm typecheck && pnpm test && pnpm build && pnpm verify:host && pnpm verify:client"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "log-analysis",
+    "subagent",
+    "skill",
+    "settings-panel"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": false
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@types/node": "^26.6.5",
+    "@types/react": "~18.3.31",
+    "react": "18.3.1",
+    "tsdown": "0.22.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
