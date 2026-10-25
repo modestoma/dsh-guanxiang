@@ -61,6 +61,10 @@
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "dependencies": {
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
@@ -79,9 +83,15 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/github": "^12.0.10",
+    "@semantic-release/npm": "^13.2.0",
+    "@semantic-release/release-notes-generator": "^14.1.1",
     "@types/node": "^26.6.5",
     "@types/react": "~18.3.31",
+    "conventional-changelog-conventionalcommits": "10.3.0",
     "react": "18.3.1",
+    "semantic-release": "^25.0.9",
     "tsdown": "0.22.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
