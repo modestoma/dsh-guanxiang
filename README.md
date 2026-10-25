@@ -2,7 +2,7 @@
 
 > **观其象，知其因。**
 
-观象是面向 [DeepSeek Harness](https://github.com/modestoma/deepseek-harness)（dsh）的日志分析插件。
+观象是面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的日志分析插件。
 
 名称取意于《周易》的观象思想：以日志为象，以推理为径，从复杂的系统运行痕迹中洞察异常、关联线索、追溯根因。
 
@@ -50,7 +50,7 @@ DeepSeek Harness 是基于 Cordis 的全插件化 Agent 框架：模型适配、
 - 打包为 dsh bundle，可通过 `dsh plugin` 命令或 Web 端的插件管理页面安装到指定 profile。
 - 所有可调参数通过插件配置暴露，可在 `cordis.yml` 或 profile 的 patch 文件中调整。
 
-dsh 的插件机制参见其[架构文档](https://github.com/modestoma/deepseek-harness/blob/main/docs/architecture.md)与[扩展手册](https://github.com/modestoma/deepseek-harness/blob/main/docs/cookbook/extension-cookbook.md)。
+dsh 的插件机制参见其[架构文档](https://github.com/deepseek-ai/deepseek-harness/blob/main/docs/architecture.md)与[扩展手册](https://github.com/deepseek-ai/deepseek-harness/blob/main/docs/cookbook/extension-cookbook.md)。
 
 ## 路线图
 
