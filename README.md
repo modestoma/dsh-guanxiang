@@ -65,7 +65,23 @@
 
 ## 安装与配置
 
-观象以 dsh bundle 交付（`package.json` 的 `dsh.bundle.patch` 指向 `cordis.patch.yml`），Host 半侧运行 `lib/index.js`，浏览器半侧运行 `lib/client.js`。可在 profile 的 patch 中配置默认值：
+观象以 dsh bundle 交付（`package.json` 的 `dsh.bundle.patch` 指向 `cordis.patch.yml`），Host 半侧运行 `lib/index.js`，浏览器半侧运行 `lib/client.js`。
+
+安装已发布的 npm 版本（推荐）：
+
+```bash
+# 在 deepseek-harness 仓库内：把 npm 包安装进 web profile
+DSH_HOME=$DSH_HOME pnpm dsh plugin --profile web add @modesto_ma/dsh-guanxiang
+```
+
+本地 checkout 开发时：
+
+```bash
+pnpm build
+DSH_HOME=$DSH_HOME pnpm dsh plugin --profile web add link:/path/to/dsh-guanxiang
+```
+
+npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pnpm build`。安装或修改后重启 dsh。包内的 `cordis.patch.yml` 把 `@modesto_ma/dsh-guanxiang` 加入 profile 的 bundle 列表，并提供稳定 `id: guanxiang` 的 Loader 行。可在 profile 的 patch 中按该 id 配置默认值：
 
 ```yaml
 - id: guanxiang
@@ -125,14 +141,23 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 
 观象与 [dsh_channels](https://github.com/modestoma/dsh_channels) 没有代码耦合。dsh_channels 把不在自己命令表中的 `/` 开头消息作为普通 prompt 交给 dsh，dsh 识别 `/guanxiang` 后展开入口 SKILL。飞书附件的宿主路径会出现在消息里，入口 SKILL 会把它作为日志路径派发。
 
-子 Agent 的审批请求不会出现在飞书卡片上，因此应用的日志分析 SKILL 应只做读取、搜索和在运行目录里解压，避免需要审批的操作。
-
 ## 开发
 
 ```sh
 pnpm install
 pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + 两个加载自检
 ```
+
+## 发布
+
+版本号由 semantic-release 按 Conventional Commits 计算，**只在手动触发时发布**；推送到 `main` / `dev` 只跑检查，可以先累积多笔提交。PR 标题需符合 `<type>(<scope>): <summary>`，type 取 `feat | fix | docs | test | refactor | chore | ci`。
+
+| 分支 | 版本 | npm dist-tag |
+| --- | --- | --- |
+| `main` | 正式版，如 `0.1.0` | `latest` |
+| `dev` | 预发布版，如 `0.1.0-beta.1` | `beta` |
+
+在 GitHub Actions 的 `pipeline` workflow 点击 **Run workflow**，选择 `main` 或 `dev`：`dry_run` 默认勾选，只预览下一个版本号；取消勾选才真正发布 npm 包、打 tag 并创建 GitHub Release。安装 beta 版用 `@modesto_ma/dsh-guanxiang@beta`。
 
 | 路径 | 内容 |
 |---|---|
