@@ -36,7 +36,7 @@ export interface EditableSettings {
   reposDir: string
   /** Application repositories to clone and keep updated. */
   repos: RepoSpec[]
-  /** Minimum age of a checkout before a dispatch updates it first, in milliseconds. */
+  /** Minimum age of a repository's last sync before loading `/guanxiang` syncs it again, in milliseconds; 0 syncs on every load. */
   fetchIntervalMs: number
   /** Maximum number of child analyses one dispatch may start. */
   maxAppsPerRequest: number
@@ -75,22 +75,22 @@ export type RepoPhase = 'pending' | 'syncing' | 'ready' | 'failed'
 export interface RepoStatusWire {
   url: string
   branch?: string
-  /** Absolute checkout directory. */
+  /** Absolute directory of the fetch-only clone; children work in commit snapshots under `<reposDir>/.snapshots/`. */
   dir: string
   phase: RepoPhase
-  /** Checked-out commit, once a checkout succeeded. */
+  /** Latest synced commit, the one the catalog describes and new dispatches use. */
   commit?: string
   /** Committer date of {@link commit}, ISO 8601. */
   commitTime?: string
   /** Last completed sync attempt, epoch milliseconds. */
   syncedAt?: number
-  /** Application description of a usable checkout. */
+  /** Application description read from {@link commit}. */
   app?: AppManifest
-  /** Why the repository is unusable (`failed`), or why the last update failed while an older checkout stays usable (`ready`). */
+  /** Why the repository is unusable (`failed`), or why the last update failed while an older commit stays usable (`ready`). */
   error?: string
   /** Whether the application is offered to intent recognition and dispatch. */
   available: boolean
-  /** Child analyses currently running in this checkout. */
+  /** Child analyses currently running in snapshots of this repository. */
   activeRuns: number
 }
 

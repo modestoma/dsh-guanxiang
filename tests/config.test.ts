@@ -28,7 +28,7 @@ describe('git address policy', () => {
 describe('configuration', () => {
   it('defaults every field and places checkouts under $DSH_HOME', () => {
     const config = resolveConfig(undefined)
-    expect(config).toMatchObject({ repos: [], fetchIntervalMs: 600000, maxAppsPerRequest: 4, subagentProvider: 'spawn' })
+    expect(config).toMatchObject({ repos: [], fetchIntervalMs: 0, maxAppsPerRequest: 4, subagentProvider: 'spawn', refreshWaitMs: 15000 })
     expect(defaultsOf(config, { DSH_HOME: '/home/u/.dsh' }).reposDir).toBe('/home/u/.dsh/guanxiang/repos')
   })
 

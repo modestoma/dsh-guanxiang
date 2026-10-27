@@ -37,6 +37,7 @@ export class GuanxiangService {
   private readonly dispatcher: Dispatcher
   private readonly skill: ReturnType<typeof createEntrySkillProvider>
   private active = true
+  private readonly refreshWaitMs: number
   private readonly booted = Promise.withResolvers<void>()
 
   /**
@@ -52,6 +53,7 @@ export class GuanxiangService {
     options: ServiceOptions = {},
   ) {
     this.defaults = defaultsOf(config)
+    this.refreshWaitMs = config.refreshWaitMs
     this.current = this.defaults
     this.registry = new RepoRegistry({
       git: options.git ?? runGit,
@@ -67,7 +69,7 @@ export class GuanxiangService {
       ...options.fetch === undefined ? {} : { fetch: options.fetch },
     })
     this.skill = createEntrySkillProvider({
-      ready: () => this.booted.promise,
+      prepare: signal => this.prepareCatalog(signal),
       apps: () => this.registry.readyApps().map(ready => ready.app),
       maxAppsPerRequest: () => this.current.maxAppsPerRequest,
     })
@@ -100,6 +102,25 @@ export class GuanxiangService {
     if (isDelegatedAgent(agent)) return false
     await abortable(this.booted.promise, signal)
     return this.active && this.registry.readyApps().length > 0
+  }
+
+  /**
+   * Wait for the first sync, then sync the repositories older than
+   * `fetchIntervalMs`, waiting at most `refreshWaitMs` for them; a refresh
+   * still running then finishes in the background.
+   * @param signal - entry skill load cancellation.
+   * @throws the signal's reason when the load is cancelled.
+   */
+  private async prepareCatalog(signal: AbortSignal | undefined): Promise<void> {
+    await abortable(this.booted.promise, signal)
+    if (!this.active) return
+    const limit = AbortSignal.timeout(this.refreshWaitMs)
+    try {
+      await abortable(this.registry.refresh(this.current.fetchIntervalMs), signal === undefined ? limit : AbortSignal.any([signal, limit]))
+    } catch (error) {
+      if (signal?.aborted === true || !limit.aborted) throw error
+      // The wait limit passed: render the catalog synced so far.
+    }
   }
 
   /**

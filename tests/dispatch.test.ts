@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { resolveConfig, defaultsOf } from '../src/config.ts'
 import { Dispatcher, renderDispatchValue } from '../src/dispatch/tool.ts'
@@ -96,7 +96,8 @@ describe('guanxiang_dispatch', () => {
     await waitForStarts(started, 1)
     const [child] = started
     expect(registry.status()[0]?.activeRuns).toBe(1)
-    expect(child?.spec).toMatchObject({ provider: 'spawn', label: '订单服务分析', delivery: 'caller', request: { cwd: registry.status()[0]?.dir, parent, maxDepth: 1 } })
+    expect(child?.spec).toMatchObject({ provider: 'spawn', label: '订单服务分析', delivery: 'caller', request: { parent, maxDepth: 1 } })
+    expect(child?.spec.request.cwd).toMatch(new RegExp(`^${join(dirname(registry.status()[0]!.dir), '.snapshots', 'order-service')}/[0-9a-f]{12}-[0-9a-f]{6}$`))
     const prompt = child?.spec.request.prompt[0]?.text as string
     expect(prompt.split('\n')[0]).toBe('/log-analysis')
     const workDir = join(project, 'sample-logs', '.guanxiang', 'runs')

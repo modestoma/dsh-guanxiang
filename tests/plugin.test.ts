@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index.ts'
 import type { HostContext, SkillProvider, SkillProviderControl, ToolActivationContext, ToolDefinition } from '../src/host.ts'
 import type { StateWire } from '../src/settings/contract.ts'
-import { createAppRepo, tempDir, waitFor } from './helpers.ts'
+import { runGit } from '../src/repos/git.ts'
+import type { GitRunner } from '../src/repos/git.ts'
+import { commitFile, createAppRepo, tempDir, waitFor } from './helpers.ts'
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 
@@ -97,6 +99,36 @@ describe('plugin', () => {
     expect(await tool!.when?.(step(1))).toBe(false)
     const [candidate] = await h.skills[0]!.list({})
     expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`order-service`')
+  })
+
+  it('refreshes repositories before rendering /guanxiang, waiting at most refreshWaitMs', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const origin = await createAppRepo(join(dir, 'order-service'))
+    const manifestPath = join(origin, '.dsh', 'guanxiang.yaml')
+    const addHint = async (hint: string): Promise<void> => {
+      await commitFile(origin, '.dsh/guanxiang.yaml', (await readFile(manifestPath, 'utf8')).replace('logHints: [', `logHints: [${hint}, `))
+    }
+    const stalled = { value: false }
+    const git: GitRunner = (args, options) => stalled.value && args[0] === 'fetch' ? new Promise(() => {}) : runGit(args, options)
+    const h = await harness()
+    cleanups.push(h.dispose)
+    apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: origin }], refreshWaitMs: 200 }, { overlayPath: join(dir, 'settings.json'), git })
+    const provider = h.skills[0]!
+    const [candidate] = await provider.list({})
+    expect((await provider.get(candidate!, {}))?.content).not.toContain('PushedHint')
+
+    await addHint('PushedHint')
+    expect((await provider.get(candidate!, {}))?.content).toContain('`PushedHint`')
+
+    stalled.value = true
+    await addHint('LateHint')
+    const started = Date.now()
+    const content = (await provider.get(candidate!, {}))?.content
+    expect(Date.now() - started).toBeLessThan(5000)
+    expect(content).toContain('`PushedHint`')
+    expect(content).not.toContain('LateHint')
+    await expect(provider.get(candidate!, { signal: AbortSignal.abort(new Error('stop')) })).rejects.toThrow('stop')
   })
 
   it('serves the panel state and persists only overridden settings', async () => {
