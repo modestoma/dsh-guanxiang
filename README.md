@@ -57,7 +57,7 @@
 父 Agent 按应用分节汇总，涉及多个应用时给出跨应用的推演
 ```
 
-- **一个入口。** 插件只提供用户斜杠入口 `/guanxiang`（模型不会自行加载）。dsh 在 Web、TUI、ACP 以及经 dsh_channels 的飞书消息中都能识别它。
+- **一个入口，两种触发。** 入口 SKILL 是 `/guanxiang`，dsh 在 Web、TUI、ACP 以及经 dsh_channels 的飞书消息中都能识别它。有可用应用且 `autoInvoke` 开启（默认）时，模型也能自行加载：dsh 给顶层 Agent 的 skill 目录里，观象的描述会列出每个可用应用的名称、id、别名和日志特征（总长不超过 500 字，放不下的只计数），用户说「分析这份订单服务的日志」或贴出带 `OrderController` 的报错时，模型会先加载观象。日志明显不属于任何已注册应用时，入口 SKILL 让模型按普通方式处理，不派发也不追问。子 Agent 的工作目录在 `reposDir` 内，那里不列出观象。应用增删时 dsh 会追加一条新的 skill 目录消息；想要确定触发时仍用 `/guanxiang`。
 - **派发由代码完成。** 模型只给出应用 id、问题和日志位置；仓库目录、应用 SKILL、并发上限都由插件决定。应用 id 必须与注册表一一对应，否则整次派发被拒绝。
 - **日志一律以绝对路径交给子 Agent。** 附件和本机文件直接传路径；消息里的对象存储下载链接由派发工具下载（只允许白名单域名，不带鉴权，限制大小与耗时）。日志包不解压，由应用的日志分析 SKILL 在运行目录里解压。
 - **应用目录随时最新。** 每次加载 `/guanxiang` 都先 `git fetch` 各仓库（间隔由 `fetchIntervalMs` 控制，默认每次），再从远端分支最新提交的 git 对象读取应用描述生成应用目录。fetch 不改动任何检出，所以正在进行的分析不会挡住更新。最多等待 `refreshWaitMs`，超时就先用已有的目录，fetch 在后台继续。
@@ -103,6 +103,7 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
     subagentProvider: spawn            # 子 Agent 使用的 ctx.subagents provider
     gitTimeoutMs: 600000               # 单条 git 命令的超时
     refreshWaitMs: 15000               # 加载 /guanxiang 时等待 fetch 的上限；0 = 不等待
+    autoInvoke: true                   # 任务匹配已注册应用时模型可自行加载入口 SKILL；false = 只能输入 /guanxiang
 ```
 
 配置在加载时校验，不合法时插件加载失败。git 地址支持 https/http/ssh/git/file URL、`user@host:path` 和绝对路径，拉取时使用本机已有的 git 凭据（SSH key 或 credential helper），插件不保存密码或 token，也不会弹出交互式输入。

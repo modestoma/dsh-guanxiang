@@ -191,7 +191,13 @@ function newRunId(now: Date): string {
   return `${stamp}-${randomBytes(3).toString('hex')}`
 }
 
-function isInside(child: string, parent: string): boolean {
+/**
+ * Whether a path is a directory or a descendant of another.
+ * @param child - candidate path.
+ * @param parent - containing directory.
+ * @returns whether `child` lies in `parent`.
+ */
+export function isInside(child: string, parent: string): boolean {
   const path = relative(parent, child)
   return path === '' || (!path.startsWith('..') && !isAbsolute(path))
 }

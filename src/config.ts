@@ -101,6 +101,11 @@ const configSchema = z.object({
    * running. 0 never waits.
    */
   refreshWaitMs: durationMs(0).default(15 * 1000),
+  /**
+   * Whether top-level agents may load the entry skill without `/guanxiang`
+   * when a task matches the usable applications its description lists.
+   */
+  autoInvoke: z.boolean().default(true),
 }).strict()
 
 /** Validated plugin configuration. */

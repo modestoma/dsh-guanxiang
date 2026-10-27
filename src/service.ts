@@ -5,10 +5,10 @@
  * @module dsh-guanxiang/service
  */
 
-import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema } from './config.ts'
+import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema, expandHome } from './config.ts'
 import type { GuanxiangConfig, SettingsOverlay } from './config.ts'
 import { abortable } from './abort.ts'
-import { Dispatcher, isDelegatedAgent } from './dispatch/tool.ts'
+import { Dispatcher, isDelegatedAgent, isInside } from './dispatch/tool.ts'
 import type { HostContext, ToolActivationContext, WorkingDirectoryService } from './host.ts'
 import { runGit } from './repos/git.ts'
 import type { GitRunner } from './repos/git.ts'
@@ -72,6 +72,8 @@ export class GuanxiangService {
       prepare: signal => this.prepareCatalog(signal),
       apps: () => this.registry.readyApps().map(ready => ready.app),
       maxAppsPerRequest: () => this.current.maxAppsPerRequest,
+      autoInvoke: config.autoInvoke,
+      inRepositories: cwd => isInside(cwd, expandHome(this.current.reposDir)),
     })
   }
 

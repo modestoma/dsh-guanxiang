@@ -1,11 +1,12 @@
 /**
- * `/guanxiang` 入口 SKILL：只供用户显式调用（模型不会自行加载），正文中的
+ * `/guanxiang` 入口 SKILL：用户可以显式调用；开启自动加载且有可用应用时，
+ * 顶层 Agent 也能在任务匹配时自行加载。目录描述列出已就绪的应用，正文中的
  * 应用目录在每次加载时由已就绪仓库的应用描述生成。
  *
  * @module dsh-guanxiang/skill/entry
  */
 
-import type { SkillCandidate, SkillDefinition, SkillProvider, SkillProviderControl } from '../host.ts'
+import type { SkillDefinition, SkillProvider, SkillProviderControl } from '../host.ts'
 import type { AppManifest } from '../settings/contract.ts'
 import { DISPATCH_TOOL_NAME } from '../dispatch/tool.ts'
 
@@ -18,7 +19,30 @@ export const SKILL_PROVIDER_NAME = 'dsh-guanxiang'
 /** DSH's precedence rank for packaged skill providers (`BUNDLED_SKILL_RANK`). */
 export const BUNDLED_SKILL_RANK = 600
 
-const DESCRIPTION = '观象日志分析入口：识别日志属于哪个应用，并派发给在该应用代码仓库中工作的子 Agent 分析根因。'
+/** Character budget of the catalog description, DSH's default `catalogDescriptionMaxLength`. */
+export const DESCRIPTION_MAX_CHARS = 500
+
+const MANUAL_DESCRIPTION = '观象日志分析入口：识别日志属于哪个应用，并派发给在该应用代码仓库中工作的子 Agent 分析根因。'
+const AUTO_DESCRIPTION_HEAD = '观象日志分析：识别日志属于哪个已注册应用，派发给在该应用代码仓库中工作的子 Agent 分析报错、定位根因。用户要分析或排查以下应用的日志、报错时使用：'
+const AUTO_DESCRIPTION_TAIL = '。日志与这些应用无关时不要使用。'
+
+/**
+ * Catalog description for model loading: what the skill does and every
+ * usable application with its id, aliases, and log hints, within
+ * {@link DESCRIPTION_MAX_CHARS}. Applications that do not fit are counted.
+ * @param apps - usable applications.
+ * @returns the description.
+ */
+export function describeApps(apps: readonly AppManifest[]): string {
+  const items = apps.map(app => `${app.name}（${[app.id, ...app.aliases, ...app.logHints].join('、')}）`)
+  for (let shown = items.length; shown > 0; shown -= 1) {
+    const rest = items.length - shown
+    const list = items.slice(0, shown).join('；') + (rest === 0 ? '' : `；另有 ${rest} 个应用`)
+    const text = `${AUTO_DESCRIPTION_HEAD}${list}${AUTO_DESCRIPTION_TAIL}`
+    if (text.length <= DESCRIPTION_MAX_CHARS) return text
+  }
+  return `${AUTO_DESCRIPTION_HEAD}${apps.length} 个应用${AUTO_DESCRIPTION_TAIL}`
+}
 
 function cell(text: string): string {
   return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
@@ -46,7 +70,9 @@ export function renderCatalog(apps: readonly AppManifest[]): string {
 export function renderEntrySkill(apps: readonly AppManifest[], maxAppsPerRequest: number): string {
   return `# 观象：日志分析入口
 
-观其象，知其因。你负责「意图识别 + 派发 + 汇总」：判断每份日志属于哪个应用，用 \`${DISPATCH_TOOL_NAME}\` 交给在该应用代码仓库里工作的子 Agent 分析，再把各应用的结论汇总给用户。你自己不做逐行日志分析。
+观其象，知其因。没有 \`${DISPATCH_TOOL_NAME}\` 工具可用时（例如你是子 Agent），忽略本 SKILL，按普通方式完成任务。
+
+你负责「意图识别 + 派发 + 汇总」：判断每份日志属于哪个应用，用 \`${DISPATCH_TOOL_NAME}\` 交给在该应用代码仓库里工作的子 Agent 分析，再把各应用的结论汇总给用户。你自己不做逐行日志分析。
 
 ## 应用目录
 
@@ -58,7 +84,8 @@ ${renderCatalog(apps)}
 2. **确定应用。** 拆分单位是「日志来源 → 应用」。
    - 用户或调用方已经写明应用 id 时直接使用；该 id 不在上表中时，告诉用户这个应用未注册（列出可用的应用 id），然后结束，不要改用别的应用。
    - 否则按名称、别名、描述和日志特征匹配。只有附件文件名或内容能区分时，可以只看日志开头几十行来判断，不要通读或解压整个日志。
-   - 无法确定或同时匹配多个应用时，用 \`ask_user_question\`（不可用时直接在回复中提问并结束）让用户选择，不要猜。
+   - 用户没有输入 \`/guanxiang\`、是你按任务匹配自行加载了本 SKILL，而日志明显不属于上表任何应用时，不要派发也不要追问，按普通方式完成用户的请求。
+   - 其余无法确定或同时匹配多个应用的情况，用 \`ask_user_question\`（不可用时直接在回复中提问并结束）让用户选择，不要猜。
    - 一个文件混有多个应用的输出时，把同一路径分别交给各应用，并在 \`filter\` 里写明区分方式（tag、进程名等）。
 3. **派发。** 一次调用 \`${DISPATCH_TOOL_NAME}\`，把所有任务放进 \`tasks\`（最多 ${maxAppsPerRequest} 个）：
    - \`app\`：上表中的应用 id。
@@ -85,7 +112,7 @@ ${renderCatalog(apps)}
 `
 }
 
-/** Inputs the provider reads at each load. */
+/** Inputs the provider reads at each listing and load. */
 export interface EntrySkillSource {
   /**
    * Settles when the catalog may be rendered: after the first repository sync
@@ -99,43 +126,64 @@ export interface EntrySkillSource {
   apps(): readonly AppManifest[]
   /** Current dispatch task ceiling. */
   maxAppsPerRequest(): number
+  /** Whether top-level agents may load the skill without `/guanxiang`. */
+  readonly autoInvoke: boolean
+  /**
+   * Whether a lookup directory lies in the repository directory children work
+   * in; the skill is not listed there.
+   * @param cwd - lookup working directory.
+   * @returns whether the directory belongs to the repositories.
+   */
+  inRepositories(cwd: string): boolean
 }
 
 /**
  * Build the entry skill provider.
  * @param source - live registry view.
  * @returns a provider factory for `ctx.skills.registerProvider`, plus the
- *   invalidation hook to call after the catalog changes.
+ *   hook to call after the usable applications may have changed; it
+ *   invalidates the DSH catalog only when the listed entry changes.
  */
 export function createEntrySkillProvider(source: EntrySkillSource): {
   factory: (control: SkillProviderControl) => SkillProvider
   invalidate: () => void
 } {
   let control: SkillProviderControl | undefined
-  const summary = {
-    name: ENTRY_SKILL_NAME,
-    description: DESCRIPTION,
-    whenToUse: '仅在用户输入 /guanxiang 时使用。',
-    invocation: { modelInvocable: false, userInvocable: true },
-    source: 'bundled',
-    provider: SKILL_PROVIDER_NAME,
-  } as const
-  const candidate: SkillCandidate = { ...summary, rank: BUNDLED_SKILL_RANK, locator: ENTRY_SKILL_NAME }
+  let listed: string | undefined
+  const summary = () => {
+    const apps = source.apps()
+    const automatic = source.autoInvoke && apps.length > 0
+    return {
+      name: ENTRY_SKILL_NAME,
+      description: automatic ? describeApps(apps) : MANUAL_DESCRIPTION,
+      whenToUse: automatic ? '用户输入 /guanxiang，或要分析、排查描述中所列应用的日志时使用。' : '仅在用户输入 /guanxiang 时使用。',
+      invocation: { modelInvocable: automatic, userInvocable: true },
+      source: 'bundled',
+      provider: SKILL_PROVIDER_NAME,
+    } as const
+  }
   return {
     factory: (registration) => {
       control = registration
       return {
         name: SKILL_PROVIDER_NAME,
-        list: () => Promise.resolve([candidate]),
+        list: (options) => {
+          if (options.cwd !== undefined && source.inRepositories(options.cwd)) return Promise.resolve([])
+          const current = summary()
+          listed = JSON.stringify(current)
+          return Promise.resolve([{ ...current, rank: BUNDLED_SKILL_RANK, locator: ENTRY_SKILL_NAME }])
+        },
         get: async (requested, options): Promise<SkillDefinition | undefined> => {
           if (requested.name !== ENTRY_SKILL_NAME) return undefined
           await source.prepare(options.signal)
-          return { ...summary, content: renderEntrySkill(source.apps(), source.maxAppsPerRequest()) }
+          return { ...summary(), content: renderEntrySkill(source.apps(), source.maxAppsPerRequest()) }
         },
       }
     },
     invalidate: () => {
-      if (control !== undefined && !control.signal.aborted) control.invalidate()
+      if (control === undefined || control.signal.aborted) return
+      if (listed !== undefined && JSON.stringify(summary()) === listed) return
+      control.invalidate()
     },
   }
 }

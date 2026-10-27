@@ -131,6 +131,25 @@ describe('plugin', () => {
     await expect(provider.get(candidate!, { signal: AbortSignal.abort(new Error('stop')) })).rejects.toThrow('stop')
   })
 
+  it('offers the entry skill to the model outside the repositories unless autoInvoke is off', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const origin = await createAppRepo(join(dir, 'order-service'))
+    const reposDir = join(dir, 'repos')
+    for (const autoInvoke of [true, false]) {
+      const h = await harness()
+      cleanups.push(h.dispose)
+      apply(h.ctx, { reposDir, repos: [{ url: origin }], autoInvoke }, { overlayPath: join(dir, `settings-${autoInvoke}.json`) })
+      const provider = h.skills[0]!
+      const [candidate] = await provider.list({ cwd: dir })
+      await provider.get(candidate!, {})
+      const [listed] = await provider.list({ cwd: dir })
+      expect(listed?.invocation.modelInvocable).toBe(autoInvoke)
+      if (autoInvoke) expect(listed?.description).toContain('订单服务（order-service')
+      expect(await provider.list({ cwd: join(reposDir, '.snapshots', 'order-service', 'x') })).toEqual([])
+    }
+  })
+
   it('serves the panel state and persists only overridden settings', async () => {
     const { dir, cleanup } = await tempDir()
     cleanups.push(cleanup)
