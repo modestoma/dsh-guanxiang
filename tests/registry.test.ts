@@ -1,11 +1,13 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runGit } from '../src/repos/git.ts'
 import { assignDirs, repoDirName, RepoRegistry } from '../src/repos/registry.ts'
-import { commitFile, createAppRepo, git, tempDir } from './helpers.ts'
+import { MANIFEST_PATH } from '../src/repos/manifest.ts'
+import { commitFile, createAppRepo, git, tempDir, waitFor } from './helpers.ts'
 
 const cleanups: (() => Promise<void>)[] = []
+const exists = (path: string): Promise<boolean> => access(path).then(() => true, () => false)
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => cleanup())) })
 
 async function setup(): Promise<{ root: string; registry: RepoRegistry; changes: () => number; now: { value: number } }> {
@@ -77,7 +79,7 @@ describe('repository registry', () => {
     await registry.syncAll()
     const [status] = registry.status()
     expect(status).toMatchObject({ phase: 'ready', available: true })
-    expect(status?.error).toMatch(/^更新失败，继续使用已有检出 [0-9a-f]{8}：/)
+    expect(status?.error).toMatch(/^更新失败，继续使用已有提交 [0-9a-f]{8}：/)
   })
 
   it('marks a repository without a manifest as failed', async () => {
@@ -121,30 +123,100 @@ describe('repository registry', () => {
     expect(registry.status()[0]?.error).toContain('同时出现在')
   })
 
-  it('defers updates while a lease holds the checkout and refreshes stale checkouts on acquire', async () => {
-    const { root, registry, now } = await setup()
+  it('updates the catalog while a lease holds an unchanged snapshot, then deletes the old snapshot', async () => {
+    const { root, registry } = await setup()
     const origin = await createAppRepo(join(root, 'origin'))
     registry.configure(join(root, 'repos'), [{ url: origin }])
     await registry.syncAll()
-    const first = registry.status()[0]?.commit
+    const first = registry.status()[0]?.commit as string
 
-    const head = await commitFile(origin, 'NOTES.md', 'v2\n')
-    const lease = await registry.acquire(['order-service'], 60_000)
-    expect(lease.apps.get('order-service')?.commit).toBe(first)
+    const lease = await registry.acquire(['order-service'])
+    const held = lease.apps.get('order-service')
+    expect(held).toMatchObject({ commit: first, url: origin })
+    expect(held?.dir.startsWith(join(root, 'repos', '.snapshots', 'origin'))).toBe(true)
+    expect(git(held!.dir, 'rev-parse', 'HEAD').trim()).toBe(first)
     expect(registry.status()[0]?.activeRuns).toBe(1)
-    await registry.syncAll()
-    expect(registry.status()[0]?.commit).toBe(first)
-    lease.release()
-    lease.release()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await registry.syncAll()
-    expect(registry.status()[0]).toMatchObject({ commit: head, activeRuns: 0 })
 
-    const next = await commitFile(origin, 'NOTES.md', 'v3\n')
-    now.value += 120_000
-    const stale = await registry.acquire(['order-service'], 60_000)
-    expect(stale.apps.get('order-service')?.commit).toBe(next)
-    stale.release()
+    const manifest = (await readFile(join(origin, MANIFEST_PATH), 'utf8')).replace('logHints: [', 'logHints: [NewHint, ')
+    const head = await commitFile(origin, MANIFEST_PATH, manifest)
+    await registry.syncAll()
+    expect(registry.status()[0]).toMatchObject({ commit: head, activeRuns: 1 })
+    expect(registry.readyApps()[0]?.app.logHints).toContain('NewHint')
+    expect(await readFile(join(held!.dir, MANIFEST_PATH), 'utf8')).not.toContain('NewHint')
+
+    const next = await registry.acquire(['order-service'])
+    expect(next.apps.get('order-service')?.commit).toBe(head)
+    expect(next.apps.get('order-service')?.dir).not.toBe(held?.dir)
+    lease.release()
+    lease.release()
+    await waitFor(async () => !await exists(held!.dir))
+    expect(registry.status()[0]?.activeRuns).toBe(1)
+    next.release()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(await exists(next.apps.get('order-service')!.dir)).toBe(true)
+    const again = await registry.acquire(['order-service'])
+    expect(again.apps.get('order-service')?.dir).toBe(next.apps.get('order-service')?.dir)
+    again.release()
+  })
+
+  it('clones without a working tree and clears snapshots left by an earlier run', async () => {
+    const { root, registry } = await setup()
+    const origin = await createAppRepo(join(root, 'origin'))
+    registry.configure(join(root, 'repos'), [{ url: origin }])
+    await registry.syncAll()
+    expect(await readdir(join(root, 'repos', 'origin'))).toEqual(['.git'])
+    const lease = await registry.acquire(['order-service'])
+    const leftover = lease.apps.get('order-service')!.dir
+
+    const restarted = new RepoRegistry({ git: runGit, gitTimeoutMs: 30_000, onChange: () => {} })
+    restarted.configure(join(root, 'repos'), [{ url: origin }])
+    await restarted.syncAll()
+    expect(await exists(leftover)).toBe(false)
+    expect(git(join(root, 'repos', 'origin'), 'worktree', 'list', '--porcelain')).not.toContain(leftover)
+    const fresh = await restarted.acquire(['order-service'])
+    expect(await readFile(join(fresh.apps.get('order-service')!.dir, MANIFEST_PATH), 'utf8')).toContain('order-service')
+    fresh.release()
+  })
+
+  it('refreshes only repositories whose last sync is old enough', async () => {
+    const { root, registry, now } = await setup()
+    const origin = await createAppRepo(join(root, 'origin'))
+    registry.configure(join(root, 'repos'), [{ url: origin }])
+    await registry.refresh(60_000)
+    const first = registry.status()[0]?.commit
+    expect(first).toBeDefined()
+    const head = await commitFile(origin, 'NOTES.md', 'v2\n')
+    now.value += 30_000
+    await registry.refresh(60_000)
+    expect(registry.status()[0]?.commit).toBe(first)
+    await registry.refresh(0)
+    expect(registry.status()[0]?.commit).toBe(head)
+  })
+
+  it('reports a manifest that is a symbolic link as unreadable', async () => {
+    const { root, registry } = await setup()
+    const origin = await createAppRepo(join(root, 'origin'))
+    await rename(join(origin, MANIFEST_PATH), join(origin, '.dsh', 'real.yaml'))
+    await symlink('real.yaml', join(origin, MANIFEST_PATH))
+    git(origin, 'add', '-A')
+    git(origin, 'commit', '-qm', 'link')
+    registry.configure(join(root, 'repos'), [{ url: origin }])
+    await registry.syncAll()
+    expect(registry.status()[0]).toMatchObject({ phase: 'failed', error: `无法读取 ${MANIFEST_PATH}：${MANIFEST_PATH} 不是普通文件` })
+  })
+
+  it('releases every application when a snapshot cannot be created', async () => {
+    const { root, registry } = await setup()
+    const origin = await createAppRepo(join(root, 'origin'))
+    registry.configure(join(root, 'repos'), [{ url: origin }])
+    await registry.syncAll()
+    await writeFile(join(root, 'repos', '.snapshots'), 'not a directory')
+    await expect(registry.acquire(['order-service'])).rejects.toThrow('应用「order-service」的代码快照创建失败')
+    expect(registry.status()[0]?.activeRuns).toBe(0)
+    await rm(join(root, 'repos', '.snapshots'))
+    const lease = await registry.acquire(['order-service'])
+    expect(await exists(lease.apps.get('order-service')!.dir)).toBe(true)
+    lease.release()
   })
 
   it('rejects unknown application ids with the available ones', async () => {
@@ -152,7 +224,7 @@ describe('repository registry', () => {
     const origin = await createAppRepo(join(root, 'origin'))
     registry.configure(join(root, 'repos'), [{ url: origin }])
     await registry.syncAll()
-    await expect(registry.acquire(['pay-service'], 60_000)).rejects.toThrow('「pay-service」不在应用注册表中。可用的应用 id：order-service')
+    await expect(registry.acquire(['pay-service'])).rejects.toThrow('「pay-service」不在应用注册表中。可用的应用 id：order-service')
     expect(registry.status()[0]?.activeRuns).toBe(0)
   })
 })

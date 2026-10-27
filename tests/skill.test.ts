@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { abortable } from '../src/abort.ts'
 import { createEntrySkillProvider, renderCatalog, renderEntrySkill } from '../src/skill/entry.ts'
 import type { AppManifest } from '../src/settings/contract.ts'
 
@@ -16,7 +17,7 @@ describe('entry skill', () => {
   it('is user-invocable only and renders the live catalog on each load', async () => {
     let apps: AppManifest[] = []
     const ready = Promise.withResolvers<void>()
-    const { factory, invalidate } = createEntrySkillProvider({ ready: () => ready.promise, apps: () => apps, maxAppsPerRequest: () => 4 })
+    const { factory, invalidate } = createEntrySkillProvider({ prepare: signal => abortable(ready.promise, signal), apps: () => apps, maxAppsPerRequest: () => 4 })
     const control = { signal: new AbortController().signal, invalidate: vi.fn() }
     const provider = factory(control)
     const [candidate] = await provider.list({})

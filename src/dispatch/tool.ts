@@ -262,7 +262,7 @@ export class Dispatcher {
       return { path, filter: log.filter }
     }))))
 
-    const lease = await this.deps.registry.acquire(tasks.map(task => task.app), settings.fetchIntervalMs)
+    const lease = await this.deps.registry.acquire(tasks.map(task => task.app))
     try {
       exec.signal.throwIfAborted()
       const runId = newRunId(this.deps.now?.() ?? new Date())

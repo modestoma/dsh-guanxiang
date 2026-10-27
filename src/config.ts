@@ -87,14 +87,20 @@ export const editableFields = {
 const configSchema = z.object({
   reposDir: editableFields.reposDir.optional(),
   repos: editableFields.repos.default([]),
-  fetchIntervalMs: editableFields.fetchIntervalMs.default(10 * 60 * 1000),
+  fetchIntervalMs: editableFields.fetchIntervalMs.default(0),
   maxAppsPerRequest: editableFields.maxAppsPerRequest.default(4),
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.default(30 * 60 * 1000),
   download: downloadSchema.prefault({}),
   /** Registered `ctx.subagents` provider the children start on. */
   subagentProvider: z.string().trim().min(1).default('spawn'),
-  /** Timeout of one git command (clone, fetch, checkout), in milliseconds. */
+  /** Timeout of one git command (clone, fetch, worktree), in milliseconds. */
   gitTimeoutMs: durationMs(1000).default(10 * 60 * 1000),
+  /**
+   * How long loading `/guanxiang` waits for the repository refresh before it
+   * renders the catalog it already has, in milliseconds; the refresh keeps
+   * running. 0 never waits.
+   */
+  refreshWaitMs: durationMs(0).default(15 * 1000),
 }).strict()
 
 /** Validated plugin configuration. */

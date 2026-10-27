@@ -264,7 +264,7 @@ function ReposTab({ draft, setDraft, state, busy, onSync }: TabProps & { state: 
                 {saved && current.error !== undefined ? <div className="gx__rowError">{current.error}</div> : null}
               </div>
               <div className="gx__rowCtl">
-                {saved ? <button type="button" className="gx__btn" disabled={busy || current.phase === 'syncing' || current.activeRuns > 0} onClick={() => { onSync(repo.url) }}>重新拉取</button> : null}
+                {saved ? <button type="button" className="gx__btn" disabled={busy || current.phase === 'syncing'} onClick={() => { onSync(repo.url) }}>重新拉取</button> : null}
                 <button type="button" className="gx__btn gx__btn--danger" onClick={() => { setDraft({ ...draft, repos: draft.repos.filter((_, position) => position !== index) }) }}>删除</button>
               </div>
             </div>
@@ -333,7 +333,7 @@ function AdvancedTab({ draft, setDraft, overridden, busy, onReset }: TabProps & 
             </div>
             <div className="gx__rowCtl"><input className="gx__input gx__input--wide gx__mono" value={draft.reposDir} onChange={(event) => { setDraft({ ...draft, reposDir: event.target.value }) }} /></div>
           </div>
-          <NumberRow label="更新间隔" summary="派发前，距上次拉取超过该时间的仓库会先更新；0 表示每次都更新。" unit="分钟" value={draft.fetchIntervalMin} overridden={overridden.includes('fetchIntervalMs')} onChange={(value) => { setDraft({ ...draft, fetchIntervalMin: value }) }} />
+          <NumberRow label="更新间隔" summary="输入 /guanxiang 时，距上次拉取超过该时间的仓库会先更新；0 表示每次都更新。" unit="分钟" value={draft.fetchIntervalMin} overridden={overridden.includes('fetchIntervalMs')} onChange={(value) => { setDraft({ ...draft, fetchIntervalMin: value }) }} />
         </div>
       </section>
       <section className="gx__sec">

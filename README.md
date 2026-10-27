@@ -48,7 +48,7 @@
 用户：/guanxiang 订单服务昨晚 21 点下单报 500，日志见附件
         │
         ▼
-入口 SKILL（意图识别）── 应用目录由已拉取仓库的 .dsh/guanxiang.yaml 生成
+入口 SKILL（意图识别）── 先 fetch 各仓库，应用目录由远端最新提交的 .dsh/guanxiang.yaml 生成
         │  guanxiang_dispatch({ tasks: [{ app, question, logs }] })
         ▼
 派发工具：校验应用 id → 下载 URL 日志 → 并行启动子 Agent，等待全部结束
@@ -60,6 +60,8 @@
 - **一个入口。** 插件只提供用户斜杠入口 `/guanxiang`（模型不会自行加载）。dsh 在 Web、TUI、ACP 以及经 dsh_channels 的飞书消息中都能识别它。
 - **派发由代码完成。** 模型只给出应用 id、问题和日志位置；仓库目录、应用 SKILL、并发上限都由插件决定。应用 id 必须与注册表一一对应，否则整次派发被拒绝。
 - **日志一律以绝对路径交给子 Agent。** 附件和本机文件直接传路径；消息里的对象存储下载链接由派发工具下载（只允许白名单域名，不带鉴权，限制大小与耗时）。日志包不解压，由应用的日志分析 SKILL 在运行目录里解压。
+- **应用目录随时最新。** 每次加载 `/guanxiang` 都先 `git fetch` 各仓库（间隔由 `fetchIntervalMs` 控制，默认每次），再从远端分支最新提交的 git 对象读取应用描述生成应用目录。fetch 不改动任何检出，所以正在进行的分析不会挡住更新。最多等待 `refreshWaitMs`，超时就先用已有的目录，fetch 在后台继续。
+- **代码快照不可变。** 子 Agent 在 `<reposDir>/.snapshots/<仓库名>/` 下按提交创建的 `git worktree` 快照里工作。快照创建后不再改动，同一提交的派发共用一份；没有分析在用、且已不是最新提交的快照会被删除。
 - **运行目录。** 每次派发在父会话目录下创建 `.guanxiang/runs/<runId>/<序号>-<应用 id>/`，下载的日志放在这里，子 Agent 也只在这里写文件；应用仓库对子 Agent 只读。
 - **等待式派发。** 工具等待所有子 Agent 结束后一次返回，一条消息对应一张完整回复；超过派发超时或调用被取消时停止仍在运行的子 Agent。子会话中不提供派发工具。
 
@@ -91,7 +93,7 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
       - url: git@github.com:example/order-service.git
       - url: https://github.com/example/pay-service.git
         branch: release                # 可选，默认跟随远端默认分支
-    fetchIntervalMs: 600000            # 派发前超过该时间的检出先更新
+    fetchIntervalMs: 0                 # 加载 /guanxiang 时距上次拉取超过该时间的仓库先 fetch；0 = 每次
     maxAppsPerRequest: 4               # 单次派发的任务上限
     dispatchTimeoutMs: 1800000         # 等待全部子 Agent 的上限
     download:
@@ -100,11 +102,14 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
       timeoutMs: 600000
     subagentProvider: spawn            # 子 Agent 使用的 ctx.subagents provider
     gitTimeoutMs: 600000               # 单条 git 命令的超时
+    refreshWaitMs: 15000               # 加载 /guanxiang 时等待 fetch 的上限；0 = 不等待
 ```
 
 配置在加载时校验，不合法时插件加载失败。git 地址支持 https/http/ssh/git/file URL、`user@host:path` 和绝对路径，拉取时使用本机已有的 git 凭据（SSH key 或 credential helper），插件不保存密码或 token，也不会弹出交互式输入。
 
 子 Agent 的命令在 dsh 的文件沙箱中运行：仓库只读，只有父会话的项目目录可写，运行目录就在其中。Linux 的 bubblewrap 沙箱会把 `/tmp` 换成空的临时目录，所以 `reposDir` 不要放在 `/tmp` 下，否则子 Agent 的命令看不到仓库。
+
+拉取目录 `<reposDir>/<仓库名>` 只用来 fetch，新克隆不检出文件（旧版本留下的检出文件不再使用）。多个同时运行的 dsh 进程不要共用同一个 `reposDir`：进程启动后首次同步时会删除快照目录里的遗留快照。
 
 ### 设置面板
 
@@ -135,7 +140,7 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 
 `.dsh/skills/<skill>/SKILL.md`：这个应用的日志分析流程（如何解压日志包、日志格式、代码结构、常见问题）。它不能设置 `user-invocable: false`，因为派发时用 `/<skill>` 加载。
 
-插件拉取仓库后检查这两个文件；缺失、不合法，或多个仓库声明同一个 id 时，相关应用不可用，原因显示在设置面板。删除地址不会删除本地检出；有子 Agent 正在分析的仓库不会被更新，分析结束后补做更新。
+插件拉取仓库后检查这两个文件；缺失、不合法，或多个仓库声明同一个 id 时，相关应用不可用，原因显示在设置面板。应用描述和 SKILL 必须是普通文件，不能是符号链接。删除地址不会删除本地克隆，它的快照在没有分析使用后删除。
 
 ## 通过飞书使用
 

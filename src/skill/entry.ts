@@ -5,7 +5,6 @@
  * @module dsh-guanxiang/skill/entry
  */
 
-import { abortable } from '../abort.ts'
 import type { SkillCandidate, SkillDefinition, SkillProvider, SkillProviderControl } from '../host.ts'
 import type { AppManifest } from '../settings/contract.ts'
 import { DISPATCH_TOOL_NAME } from '../dispatch/tool.ts'
@@ -88,8 +87,14 @@ ${renderCatalog(apps)}
 
 /** Inputs the provider reads at each load. */
 export interface EntrySkillSource {
-  /** Settles once the first repository sync after startup finished, so an early `/guanxiang` sees the cloned applications. */
-  ready(): Promise<void>
+  /**
+   * Settles when the catalog may be rendered: after the first repository sync
+   * since startup, then after the stale repositories were refreshed or the
+   * refresh wait limit passed.
+   * @param signal - load cancellation.
+   * @throws the signal's reason when the load is cancelled.
+   */
+  prepare(signal: AbortSignal | undefined): Promise<void>
   /** Usable applications. */
   apps(): readonly AppManifest[]
   /** Current dispatch task ceiling. */
@@ -124,7 +129,7 @@ export function createEntrySkillProvider(source: EntrySkillSource): {
         list: () => Promise.resolve([candidate]),
         get: async (requested, options): Promise<SkillDefinition | undefined> => {
           if (requested.name !== ENTRY_SKILL_NAME) return undefined
-          await abortable(source.ready(), options.signal)
+          await source.prepare(options.signal)
           return { ...summary, content: renderEntrySkill(source.apps(), source.maxAppsPerRequest()) }
         },
       }
