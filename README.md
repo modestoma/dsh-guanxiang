@@ -150,14 +150,14 @@ pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + �
 
 ## 发布
 
-版本号由 semantic-release 按 Conventional Commits 计算，**只在手动触发时发布**；推送到 `main` / `dev` 只跑检查，可以先累积多笔提交。PR 标题需符合 `<type>(<scope>): <summary>`，type 取 `feat | fix | docs | test | refactor | chore | ci`。
+版本号由 semantic-release 按 Conventional Commits 计算。推送到 `dev` 后，检查通过就自动发布 beta；正式版**只在手动触发时发布**，推送到 `main` 只跑检查。只有 `feat`、`fix` 或破坏性变更会产生新版本，其余类型的提交不发布。PR 标题需符合 `<type>(<scope>): <summary>`，type 取 `feat | fix | docs | test | refactor | chore | ci`。
 
-| 分支 | 版本 | npm dist-tag |
-| --- | --- | --- |
-| `main` | 正式版，如 `0.1.0` | `latest` |
-| `dev` | 预发布版，如 `0.1.0-beta.1` | `beta` |
+| 分支 | 触发 | 版本 | npm dist-tag |
+| --- | --- | --- | --- |
+| `main` | 手动 | 正式版，如 `0.1.0` | `latest` |
+| `dev` | 推送自动 | 预发布版，如 `0.1.0-beta.1` | `beta` |
 
-在 GitHub Actions 的 `pipeline` workflow 点击 **Run workflow**，选择 `main` 或 `dev`：`dry_run` 默认勾选，只预览下一个版本号；取消勾选才真正发布 npm 包、打 tag 并创建 GitHub Release。安装 beta 版用 `@modesto_ma/dsh-guanxiang@beta`。
+发布正式版：在 GitHub Actions 的 `pipeline` workflow 点击 **Run workflow** 并选择 `main`。`dry_run` 默认勾选，只预览下一个版本号；取消勾选才真正发布 npm 包、打 tag 并创建 GitHub Release。在 `dev` 上手动触发同样可用，用来预览或补发 beta。安装 beta 版用 `@modesto_ma/dsh-guanxiang@beta`。
 
 | 路径 | 内容 |
 |---|---|
