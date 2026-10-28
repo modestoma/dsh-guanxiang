@@ -96,6 +96,7 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
         branch: release                # 可选，默认跟随远端默认分支
     gitCredentials:                    # https 仓库的访问令牌，只写令牌名称，不写令牌值
       - url: https://gitlab.example.com  # 地址前缀；其下的 https 仓库使用该令牌
+        alias: guanxiang               # 可选，面板显示的名称
         username: oauth2               # 可选，默认 oauth2
         tokenEnv: GITLAB_TOKEN         # DSH 凭据库中的令牌名称，也可以是同名环境变量
     fetchIntervalMs: 0                 # 加载 /guanxiang 时距上次拉取超过该时间的仓库先 fetch；0 = 每次
@@ -142,7 +143,7 @@ DSH Web 左侧栏的「观象」入口打开整页设置面板：
 | 分页 | 内容 |
 |---|---|
 | 应用仓库 | git 地址列表（分支可选）、每个仓库的拉取状态、提交号、应用描述与不可用原因，单个或全部重新拉取 |
-| 访问令牌 | 填 https 服务器地址和个人访问令牌后一键添加；用户名与凭据库键名在「高级」中，可留空用默认值。每行显示令牌是否已设置及来源，可替换或清除 |
+| 访问令牌 | 填 GitLab 地址、令牌别名和令牌三项即可添加；用户名固定为 oauth2，凭据库键名自动分配（`GUANXIANG_GITLAB_TOKEN`、`GUANXIANG_GITLAB_TOKEN_2`……）。每行显示令牌是否已设置及来源，可替换或清除 |
 | 日志下载 | 允许下载的域名、单文件大小上限、下载超时 |
 | 高级 | 拉取目录、更新间隔、单次应用数上限、派发超时、SKILL 改进开关与提议上限，恢复 cordis.yml 配置 |
 

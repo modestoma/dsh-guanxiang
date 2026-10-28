@@ -28,6 +28,8 @@ describe('access token addresses', () => {
   it('validates the configuration and defaults the username', () => {
     expect(resolveConfig({ gitCredentials: [{ url: 'https://GitLab.example.com/', tokenEnv: 'GITLAB_TOKEN' }] }).gitCredentials)
       .toEqual([spec('https://gitlab.example.com')])
+    expect(resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', alias: ' guanxiang ', tokenEnv: 'A' }] }).gitCredentials[0]?.alias).toBe('guanxiang')
+    expect(resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', alias: '', tokenEnv: 'A' }] }).gitCredentials[0]?.alias).toBeUndefined()
     // A token pasted into the name field is refused without repeating it.
     expect(() => resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', tokenEnv: 'glpat-123' }] })).toThrow(/不是令牌本身/)
     expect(() => resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', tokenEnv: 'glpat-123' }] })).not.toThrow(/glpat-123/)

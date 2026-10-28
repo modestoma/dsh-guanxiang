@@ -62,6 +62,8 @@ const credentialSchema = z.object({
   url: z.string().trim()
     .refine(value => normalizeCredentialUrl(value) !== undefined, '令牌地址不合法：填 https://主机[:端口][/路径]，不含用户名、查询参数或片段')
     .transform(value => normalizeCredentialUrl(value) as string),
+  alias: z.string().trim().max(64, '令牌别名不能超过 64 个字符').regex(/^[^\u0000-\u001f\u007f]*$/, '令牌别名不能包含控制字符').optional()
+    .transform(value => value === '' ? undefined : value),
   username: z.string().trim().regex(/^\S+$/, '用户名不能为空或包含空白').default('oauth2'),
   tokenEnv: z.string().trim().regex(TOKEN_ENV_PATTERN, '令牌名称只能包含字母、数字和下划线，且不能以数字开头（它是凭据库中的键名，不是令牌本身）'),
 }).strict()
@@ -220,7 +222,12 @@ function copyRepos(repos: readonly RepoSpec[]): RepoSpec[] {
 }
 
 function copyCredentials(credentials: readonly GitCredentialSpec[]): GitCredentialSpec[] {
-  return credentials.map(credential => ({ url: credential.url, username: credential.username, tokenEnv: credential.tokenEnv }))
+  return credentials.map(credential => ({
+    url: credential.url,
+    ...credential.alias === undefined ? {} : { alias: credential.alias },
+    username: credential.username,
+    tokenEnv: credential.tokenEnv,
+  }))
 }
 
 /**
