@@ -1,12 +1,14 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index.ts'
-import type { HostContext, SkillProvider, SkillProviderControl, ToolActivationContext, ToolDefinition } from '../src/host.ts'
+import type { HostContext, HostCredentials, SkillProvider, SkillProviderControl, ToolActivationContext, ToolDefinition } from '../src/host.ts'
 import type { StateWire } from '../src/settings/contract.ts'
-import { createAppRepo, tempDir, waitFor } from './helpers.ts'
+import { runGit } from '../src/repos/git.ts'
+import type { GitRunner } from '../src/repos/git.ts'
+import { commitFile, createAppRepo, git, serveGitOverHttp, tempDir, waitFor } from './helpers.ts'
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 
@@ -22,7 +24,7 @@ interface Harness {
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => cleanup())) })
 
-async function harness(): Promise<Harness> {
+async function harness(services: Record<string, unknown> = {}): Promise<Harness> {
   const routes = new Map<string, Handler>()
   const tools: Harness['tools'] = []
   const skills: SkillProvider[] = []
@@ -46,7 +48,7 @@ async function harness(): Promise<Harness> {
       },
     },
     subagents: { getProvider: () => ({}), resolveMaxDepth: () => 1, startActivation: () => Promise.reject(new Error('not used')) },
-    get: (name: string) => ({ webServer, connection } as Record<string, unknown>)[name],
+    get: (name: string) => ({ webServer, connection, ...services } as Record<string, unknown>)[name],
     effect: (callback) => {
       const dispose = callback()
       const wrapped = (): void => { dispose?.() }
@@ -88,15 +90,82 @@ describe('plugin', () => {
     cleanups.push(h.dispose)
     apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: origin }] }, { overlayPath: join(dir, 'settings.json') })
     expect(h.skills.map(skill => skill.name)).toEqual(['dsh-guanxiang'])
-    expect(h.tools.map(tool => tool.definition.name)).toEqual(['guanxiang_dispatch'])
-    const [tool] = h.tools
+    expect(h.tools.map(tool => tool.definition.name)).toEqual(['guanxiang_dispatch', 'guanxiang_propose_skill'])
+    const [tool, propose] = h.tools
     const signal = new AbortController().signal
     const step = (depth?: number) => ({ agent: { id: 'a', session: { header: { id: 'a', ...depth === undefined ? {} : { delegationDepth: depth } } } }, signal })
     // The condition waits for the first sync, so a step prepared during startup still sees the cloned application.
     expect(await tool!.when?.(step())).toBe(true)
     expect(await tool!.when?.(step(1))).toBe(false)
+    // SKILL proposals are off by default.
+    expect(await propose!.when?.(step())).toBe(false)
     const [candidate] = await h.skills[0]!.list({})
     expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`order-service`')
+  })
+
+  it('offers the SKILL proposal tool to top-level agents once proposals are enabled and mentions it in /guanxiang', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const origin = await createAppRepo(join(dir, 'order-service'))
+    const h = await harness()
+    cleanups.push(h.dispose)
+    apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: origin }], skillUpdates: { enabled: true } }, { overlayPath: join(dir, 'settings.json') })
+    const propose = h.tools.find(tool => tool.definition.name === 'guanxiang_propose_skill')
+    const signal = new AbortController().signal
+    const step = (depth?: number) => ({ agent: { id: 'a', session: { header: { id: 'a', ...depth === undefined ? {} : { delegationDepth: depth } } } }, signal })
+    expect(await propose!.when?.(step())).toBe(true)
+    expect(await propose!.when?.(step(1))).toBe(false)
+    const [candidate] = await h.skills[0]!.list({})
+    expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`guanxiang_propose_skill`')
+  })
+
+  it('refreshes repositories before rendering /guanxiang, waiting at most refreshWaitMs', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const origin = await createAppRepo(join(dir, 'order-service'))
+    const manifestPath = join(origin, '.dsh', 'guanxiang.yaml')
+    const addHint = async (hint: string): Promise<void> => {
+      await commitFile(origin, '.dsh/guanxiang.yaml', (await readFile(manifestPath, 'utf8')).replace('logHints: [', `logHints: [${hint}, `))
+    }
+    const stalled = { value: false }
+    const git: GitRunner = (args, options) => stalled.value && args[0] === 'fetch' ? new Promise(() => {}) : runGit(args, options)
+    const h = await harness()
+    cleanups.push(h.dispose)
+    apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: origin }], refreshWaitMs: 2000 }, { overlayPath: join(dir, 'settings.json'), git })
+    const provider = h.skills[0]!
+    const [candidate] = await provider.list({})
+    expect((await provider.get(candidate!, {}))?.content).not.toContain('PushedHint')
+
+    await addHint('PushedHint')
+    expect((await provider.get(candidate!, {}))?.content).toContain('`PushedHint`')
+
+    stalled.value = true
+    await addHint('LateHint')
+    const started = Date.now()
+    const content = (await provider.get(candidate!, {}))?.content
+    expect(Date.now() - started).toBeLessThan(5000)
+    expect(content).toContain('`PushedHint`')
+    expect(content).not.toContain('LateHint')
+    await expect(provider.get(candidate!, { signal: AbortSignal.abort(new Error('stop')) })).rejects.toThrow('stop')
+  })
+
+  it('offers the entry skill to the model outside the repositories unless autoInvoke is off', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const origin = await createAppRepo(join(dir, 'order-service'))
+    const reposDir = join(dir, 'repos')
+    for (const autoInvoke of [true, false]) {
+      const h = await harness()
+      cleanups.push(h.dispose)
+      apply(h.ctx, { reposDir, repos: [{ url: origin }], autoInvoke }, { overlayPath: join(dir, `settings-${autoInvoke}.json`) })
+      const provider = h.skills[0]!
+      const [candidate] = await provider.list({ cwd: dir })
+      await provider.get(candidate!, {})
+      const [listed] = await provider.list({ cwd: dir })
+      expect(listed?.invocation.modelInvocable).toBe(autoInvoke)
+      if (autoInvoke) expect(listed?.description).toContain('订单服务（order-service')
+      expect(await provider.list({ cwd: join(reposDir, '.snapshots', 'order-service', 'x') })).toEqual([])
+    }
   })
 
   it('serves the panel state and persists only overridden settings', async () => {
@@ -136,6 +205,78 @@ describe('plugin', () => {
     const reset = await fetch(`${h.base}/guanxiang/settings`, { method: 'DELETE' })
     expect((await json<{ state: StateWire }>(reset)).state).toMatchObject({ repos: [], overridden: [] })
     expect(await h.tools[0]!.when?.(step)).toBe(false)
+  })
+
+  it('pulls https repositories with a token stored through the panel without exposing it', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const work = await createAppRepo(join(dir, 'order-service'))
+    await mkdir(join(dir, 'served'))
+    git(dir, 'clone', '-q', '--bare', work, join(dir, 'served', 'order-service.git'))
+    const token = 'glpat-Secret0123456789'
+    const server = await serveGitOverHttp(join(dir, 'served'), 'oauth2', token)
+    cleanups.push(server.close)
+    const stored = new Map<string, string>()
+    const credentials: HostCredentials = {
+      resolve: async (ref) => { const value = stored.get(ref); return value === undefined ? undefined : { value, source: 'file' } },
+      describe: async ref => stored.has(ref) ? { configured: true, source: 'file', writable: true } : { configured: false, writable: true },
+      set: async (ref, value) => { stored.set(ref, value) },
+      unset: async (ref) => { stored.delete(ref) },
+    }
+    const h = await harness({ credentials })
+    cleanups.push(h.dispose)
+    const reposDir = join(dir, 'repos')
+    const url = `${server.base}/order-service.git`
+    apply(h.ctx, { reposDir, repos: [{ url }], gitCredentials: [{ url: `${server.base}/`, tokenEnv: 'GITLAB_TOKEN' }] }, { overlayPath: join(dir, 'settings.json') })
+    const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/guanxiang/state`))
+    const putToken = (body: unknown): Promise<Response> => fetch(`${h.base}/guanxiang/token`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+
+    await waitFor(async () => (await state()).repos[0]?.phase === 'failed')
+    const initial = await state()
+    expect(initial.settings.gitCredentials).toEqual([{ url: server.base, username: 'oauth2', tokenEnv: 'GITLAB_TOKEN' }])
+    expect(initial.repos[0]?.error).toContain('GITLAB_TOKEN 未设置')
+    expect(initial.credentials).toEqual({ available: true, tokens: [{ tokenEnv: 'GITLAB_TOKEN', configured: false, writable: true }] })
+
+    const unrelated = await putToken({ tokenEnv: 'DEEPSEEK_API_KEY', value: 'sk-x' })
+    expect(unrelated.status).toBe(400)
+    expect((await putToken({ tokenEnv: 'GITLAB_TOKEN', value: 'a\nb' })).status).toBe(400)
+    expect(stored.size).toBe(0)
+
+    expect((await putToken({ tokenEnv: 'GITLAB_TOKEN', value: 'glpat-wrong' })).status).toBe(200)
+    await waitFor(async () => { const repo = (await state()).repos[0]; return repo?.phase === 'failed' && repo.error?.includes('未设置') === false })
+    expect((await state()).repos[0]?.error).not.toContain('glpat-wrong')
+
+    const saved = await putToken({ tokenEnv: 'GITLAB_TOKEN', value: ` ${token} ` })
+    const savedText = await saved.text()
+    expect(saved.status).toBe(200)
+    expect(savedText).not.toContain(token)
+    // The mutation response already shows the retry, so the panel keeps polling.
+    expect((JSON.parse(savedText) as { state: StateWire }).state.repos[0]?.phase).toBe('syncing')
+    expect(stored.get('GITLAB_TOKEN')).toBe(token)
+    await waitFor(async () => (await state()).repos[0]?.available === true)
+    const ready = await state()
+    expect(ready.credentials.tokens).toEqual([{ tokenEnv: 'GITLAB_TOKEN', configured: true, source: 'file', writable: true }])
+    expect(JSON.stringify(ready)).not.toContain(token)
+    expect(await readFile(join(reposDir, 'order-service', '.git', 'config'), 'utf8')).not.toContain(token)
+
+    const cleared = await fetch(`${h.base}/guanxiang/token`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenEnv: 'GITLAB_TOKEN' }) })
+    expect(cleared.status).toBe(200)
+    expect(stored.size).toBe(0)
+  })
+
+  it('reports a missing credential store instead of pulling without the token', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const h = await harness()
+    cleanups.push(h.dispose)
+    apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: 'https://gitlab.invalid/team/app.git' }], gitCredentials: [{ url: 'https://gitlab.invalid', tokenEnv: 'GITLAB_TOKEN' }] }, { overlayPath: join(dir, 'settings.json') })
+    const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/guanxiang/state`))
+    await waitFor(async () => (await state()).repos[0]?.phase === 'failed')
+    const current = await state()
+    expect(current.credentials).toEqual({ available: false, tokens: [] })
+    expect(current.repos[0]?.error).toContain('没有凭据服务')
+    const put = await fetch(`${h.base}/guanxiang/token`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenEnv: 'GITLAB_TOKEN', value: 'x' }) })
+    expect(put.status).toBe(400)
   })
 
   it('answers the host gate rejection before touching the request', async () => {

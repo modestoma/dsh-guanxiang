@@ -80,29 +80,52 @@ export function disablesUserInvocation(text: string): boolean {
 }
 
 /**
- * Read and check one checkout: the manifest exists and is valid, and its
+ * Reads one repository file by its path relative to the repository root.
+ * Resolves `undefined` when the file does not exist and rejects on any other
+ * failure.
+ */
+export type RepoFileReader = (path: string) => Promise<string | undefined>
+
+/**
+ * Read and check one repository: the manifest exists and is valid, and its
  * analysis skill exists and is user-invocable.
+ * @param read - file reader rooted at the repository (a checkout or one commit).
+ * @returns the application description or the reason it is unusable.
+ */
+export async function checkAppManifest(read: RepoFileReader): Promise<ManifestRead> {
+  let text: string | undefined
+  try {
+    text = await read(MANIFEST_PATH)
+  } catch (error) {
+    return { ok: false, error: `无法读取 ${MANIFEST_PATH}：${(error as Error).message}` }
+  }
+  if (text === undefined) return { ok: false, error: `仓库缺少应用描述 ${MANIFEST_PATH}` }
+  const manifest = parseManifest(text)
+  if (!manifest.ok) return manifest
+  const skill = skillPath(manifest.app.skill)
+  let skillText: string | undefined
+  try {
+    skillText = await read(skill)
+  } catch (error) {
+    return { ok: false, error: `无法读取 ${skill}：${(error as Error).message}` }
+  }
+  if (skillText === undefined) return { ok: false, error: `仓库缺少日志分析 SKILL ${skill}` }
+  if (disablesUserInvocation(skillText)) return { ok: false, error: `${skill} 设置了 user-invocable: false，派发时无法用 /${manifest.app.skill} 加载` }
+  return manifest
+}
+
+/**
+ * Read and check one checkout on disk.
  * @param dir - repository root.
  * @returns the application description or the reason it is unusable.
  */
 export async function readAppManifest(dir: string): Promise<ManifestRead> {
-  let text: string
-  try {
-    text = await readFile(join(dir, MANIFEST_PATH), 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: false, error: `仓库缺少应用描述 ${MANIFEST_PATH}` }
-    return { ok: false, error: `无法读取 ${MANIFEST_PATH}：${(error as Error).message}` }
-  }
-  const manifest = parseManifest(text)
-  if (!manifest.ok) return manifest
-  const skill = skillPath(manifest.app.skill)
-  let skillText: string
-  try {
-    skillText = await readFile(join(dir, skill), 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: false, error: `仓库缺少日志分析 SKILL ${skill}` }
-    return { ok: false, error: `无法读取 ${skill}：${(error as Error).message}` }
-  }
-  if (disablesUserInvocation(skillText)) return { ok: false, error: `${skill} 设置了 user-invocable: false，派发时无法用 /${manifest.app.skill} 加载` }
-  return manifest
+  return await checkAppManifest(async (path) => {
+    try {
+      return await readFile(join(dir, path), 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
+    }
+  })
 }
