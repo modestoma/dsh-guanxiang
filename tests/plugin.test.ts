@@ -232,6 +232,8 @@ describe('plugin', () => {
     const savedText = await saved.text()
     expect(saved.status).toBe(200)
     expect(savedText).not.toContain(token)
+    // The mutation response already shows the retry, so the panel keeps polling.
+    expect((JSON.parse(savedText) as { state: StateWire }).state.repos[0]?.phase).toBe('syncing')
     expect(stored.get('GITLAB_TOKEN')).toBe(token)
     await waitFor(async () => (await state()).repos[0]?.available === true)
     const ready = await state()

@@ -228,17 +228,17 @@ export class RepoRegistry {
   /**
    * Sync the configured repositories with the given addresses again after any
    * sync already running for them, so the new sync sees settings changed since
-   * that sync started (an access token, for example).
+   * that sync started (an access token, for example). An idle repository
+   * starts syncing before this returns, so its status reads `syncing` at once.
    * @param urls - addresses to sync.
    * @returns when those syncs settled.
    */
   async resyncUrls(urls: readonly string[]): Promise<void> {
     const wanted = new Set(urls)
-    await Promise.all(this.entries.filter(entry => wanted.has(entry.spec.url)).map(async (entry) => {
-      // The earlier sync's outcome is superseded by the one started below.
-      await entry.syncing?.then(() => undefined, () => undefined)
-      await this.syncEntry(entry)
-    }))
+    await Promise.all(this.entries.filter(entry => wanted.has(entry.spec.url)).map(entry => entry.syncing === undefined
+      ? this.syncEntry(entry)
+      // The running sync's outcome is superseded by the one started after it.
+      : entry.syncing.then(() => undefined, () => undefined).then(() => this.syncEntry(entry))))
   }
 
   /**
