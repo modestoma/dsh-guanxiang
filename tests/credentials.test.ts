@@ -28,7 +28,9 @@ describe('access token addresses', () => {
   it('validates the configuration and defaults the username', () => {
     expect(resolveConfig({ gitCredentials: [{ url: 'https://GitLab.example.com/', tokenEnv: 'GITLAB_TOKEN' }] }).gitCredentials)
       .toEqual([spec('https://gitlab.example.com')])
-    expect(() => resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', tokenEnv: 'glpat-123' }] })).toThrow(/令牌名称/)
+    // A token pasted into the name field is refused without repeating it.
+    expect(() => resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', tokenEnv: 'glpat-123' }] })).toThrow(/不是令牌本身/)
+    expect(() => resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', tokenEnv: 'glpat-123' }] })).not.toThrow(/glpat-123/)
     expect(() => resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', tokenEnv: 'A', token: 'x' }] })).toThrow()
     expect(() => resolveConfig({ gitCredentials: [{ url: 'https://a.example.com', tokenEnv: 'A' }, { url: 'https://a.example.com/', tokenEnv: 'B' }] })).toThrow(/重复的令牌地址/)
   })

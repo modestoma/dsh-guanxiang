@@ -22,6 +22,9 @@ export interface RepoSpec {
   branch?: string
 }
 
+/** Credential reference grammar of `@deepseek-ai/dsh-credentials` (a POSIX shell identifier), which {@link GitCredentialSpec.tokenEnv} follows. */
+export const TOKEN_ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 /** HTTPS access token used for the repositories under one address prefix. */
 export interface GitCredentialSpec {
   /** `https://host[:port][/path]` (or `http://`) prefix; repository addresses under it use this token. */

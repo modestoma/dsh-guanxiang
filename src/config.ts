@@ -8,7 +8,8 @@
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { z } from 'zod'
-import { normalizeCredentialUrl, TOKEN_ENV_PATTERN } from './repos/credentials.ts'
+import { normalizeCredentialUrl } from './repos/credentials.ts'
+import { TOKEN_ENV_PATTERN } from './settings/contract.ts'
 import type { EditableSettings, GitCredentialSpec, RepoSpec } from './settings/contract.ts'
 
 /** Largest delay Node's `setTimeout` honors (2^31 − 1 ms). */
@@ -62,7 +63,7 @@ const credentialSchema = z.object({
     .refine(value => normalizeCredentialUrl(value) !== undefined, '令牌地址不合法：填 https://主机[:端口][/路径]，不含用户名、查询参数或片段')
     .transform(value => normalizeCredentialUrl(value) as string),
   username: z.string().trim().regex(/^\S+$/, '用户名不能为空或包含空白').default('oauth2'),
-  tokenEnv: z.string().trim().regex(TOKEN_ENV_PATTERN, '令牌名称只能包含字母、数字和下划线，且不能以数字开头'),
+  tokenEnv: z.string().trim().regex(TOKEN_ENV_PATTERN, '令牌名称只能包含字母、数字和下划线，且不能以数字开头（它是凭据库中的键名，不是令牌本身）'),
 }).strict()
 
 const hostSchema = z.string().trim().toLowerCase()
