@@ -45,6 +45,7 @@ const CSS = `
 .gx__input:focus{border-color:var(--gx-accent)}
 .gx__input--num{width:120px;text-align:right;font-variant-numeric:tabular-nums}
 .gx__input--wide{width:320px}
+.gx__check{width:16px;height:16px;margin:0;accent-color:var(--gx-accent);cursor:pointer}
 .gx__unit{min-width:36px;color:var(--gx-fg3);font-size:12px}
 .gx__addRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px}
 .gx__addRow .gx__input{flex:1 1 160px;width:auto}

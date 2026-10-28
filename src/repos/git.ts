@@ -25,9 +25,13 @@ export interface GitRunOptions {
   timeoutMs: number
   /** Variables added to the environment of this command only (credentials for network commands). */
   env?: Readonly<Record<string, string>>
+  /** Text written to the command's standard input. */
+  input?: string
+  /** `all` resolves, or reports on failure, stdout followed by stderr, for commands such as `push --porcelain` that split their report. */
+  output?: 'stdout' | 'all'
 }
 
-/** Runs one git command and resolves its stdout. */
+/** Runs one git command and resolves its stdout (or all output, per {@link GitRunOptions.output}). */
 export type GitRunner = (args: readonly string[], options: GitRunOptions) => Promise<string>
 
 /**
@@ -45,11 +49,11 @@ export function gitEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
 /**
  * Default runner backed by the `git` executable on PATH.
  * @param args - git arguments.
- * @param options - working directory, timeout, and extra environment.
- * @returns stdout.
+ * @param options - working directory, timeout, extra environment, input, and output selection.
+ * @returns stdout, or stdout followed by stderr.
  */
 export const runGit: GitRunner = (args, options) => new Promise((resolve, reject) => {
-  execFile('git', [...args], {
+  const child = execFile('git', [...args], {
     cwd: options.cwd,
     env: { ...gitEnvironment(), ...options.env },
     timeout: options.timeoutMs,
@@ -57,11 +61,14 @@ export const runGit: GitRunner = (args, options) => new Promise((resolve, reject
     windowsHide: true,
   }, (error, stdout, stderr) => {
     if (error === null) {
-      resolve(stdout)
+      resolve(options.output === 'all' ? `${stdout}${stderr}` : stdout)
       return
     }
-    const output = (stderr.trim() !== '' ? stderr : stdout).trim()
+    const output = (options.output === 'all' || stderr.trim() === '' ? `${stdout}${stderr}` : stderr).trim()
     const killed = (error as { killed?: boolean }).killed === true
     reject(new GitError(args, killed ? `超时（${options.timeoutMs} ms）后被终止${output === '' ? '' : `：${output}`}` : output || error.message))
   })
+  // A command that exits without reading its input fails through its exit status, not EPIPE.
+  child.stdin?.on('error', () => {})
+  child.stdin?.end(options.input)
 })

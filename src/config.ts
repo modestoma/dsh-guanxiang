@@ -77,6 +77,17 @@ const downloadSchema = z.object({
   timeoutMs: durationMs(1000).default(10 * 60 * 1000),
 }).strict()
 
+const skillUpdatesSchema = z.object({
+  enabled: z.boolean().default(false),
+  maxFiles: z.number().int().min(1).max(256).default(16),
+  maxFileBytes: z.number().int().min(1).max(16 * 1024 * 1024).default(256 * 1024),
+}).strict()
+
+const authorSchema = z.object({
+  name: z.string().trim().min(1, '提交作者名不能为空').refine(value => !/[<>\n]/.test(value), '提交作者名不能包含 < > 或换行'),
+  email: z.string().trim().min(1, '提交作者邮箱不能为空').refine(value => !/[<>\s]/.test(value), '提交作者邮箱不能包含 < > 或空白'),
+}).strict()
+
 /** Field validators shared by the cordis config and the panel overlay. */
 export const editableFields = {
   reposDir: z.string().trim().min(1, '拉取目录不能为空'),
@@ -98,6 +109,7 @@ export const editableFields = {
   maxAppsPerRequest: z.number().int().min(1).max(32),
   dispatchTimeoutMs: durationMs(1000),
   download: downloadSchema,
+  skillUpdates: skillUpdatesSchema,
 }
 
 const configSchema = z.object({
@@ -109,6 +121,12 @@ const configSchema = z.object({
   maxAppsPerRequest: editableFields.maxAppsPerRequest.default(4),
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.default(30 * 60 * 1000),
   download: downloadSchema.prefault({}),
+  skillUpdates: skillUpdatesSchema.prefault({}),
+  /**
+   * Author and committer of SKILL improvement commits; omitted uses the git
+   * identity configured on the host (`user.name` / `user.email`).
+   */
+  skillUpdateAuthor: authorSchema.optional(),
   /** Registered `ctx.subagents` provider the children start on. */
   subagentProvider: z.string().trim().min(1).default('spawn'),
   /** Timeout of one git command (clone, fetch, worktree), in milliseconds. */
@@ -141,6 +159,7 @@ export const overlaySchema = z.object({
   maxAppsPerRequest: editableFields.maxAppsPerRequest.optional(),
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.optional(),
   download: downloadSchema.optional(),
+  skillUpdates: skillUpdatesSchema.optional(),
 }).strict()
 
 /** Validated panel overlay. */
@@ -219,6 +238,7 @@ export function defaultsOf(config: GuanxiangConfig, env: NodeJS.ProcessEnv = pro
     maxAppsPerRequest: config.maxAppsPerRequest,
     dispatchTimeoutMs: config.dispatchTimeoutMs,
     download: { ...config.download, allowedHosts: [...config.download.allowedHosts] },
+    skillUpdates: { ...config.skillUpdates },
   }
 }
 
@@ -238,5 +258,6 @@ export function applyOverlay(defaults: EditableSettings, overlay: SettingsOverla
     maxAppsPerRequest: overlay.maxAppsPerRequest ?? defaults.maxAppsPerRequest,
     dispatchTimeoutMs: overlay.dispatchTimeoutMs ?? defaults.dispatchTimeoutMs,
     download: overlay.download ?? defaults.download,
+    skillUpdates: overlay.skillUpdates ?? defaults.skillUpdates,
   }
 }

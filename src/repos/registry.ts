@@ -55,6 +55,16 @@ export interface LeasedApp extends ReadyApp {
   readonly dir: string
 }
 
+/** A clone opened for writing objects and pushing; see {@link RepoRegistry.withClone}. */
+export interface CloneAccess {
+  /** Fetch-only clone directory. */
+  readonly dir: string
+  /** The configured branch, or the remote's default branch when none is configured. */
+  readonly branch: string
+  /** Environment for network commands of this address, such as an access token. */
+  readonly env: Readonly<Record<string, string>>
+}
+
 /** Held snapshots of one dispatch; release exactly once. */
 export interface RepoLease {
   readonly apps: ReadonlyMap<string, LeasedApp>
@@ -347,6 +357,25 @@ export class RepoRegistry {
       apps: new Map(held.map(({ id, app, snapshot }) => [id, { ...app, dir: snapshot.dir }])),
       release,
     }
+  }
+
+  /**
+   * Run a task on the clone of a configured address after every sync queued
+   * before it, so the task never overlaps a fetch of the same clone.
+   * @param url - configured repository address.
+   * @param task - work on the clone.
+   * @returns the task's result.
+   * @throws when the address is not configured, its token cannot be read, or the task fails.
+   */
+  async withClone<T>(url: string, task: (clone: CloneAccess) => Promise<T>): Promise<T> {
+    const entry = this.entries.find(item => item.spec.url === url)
+    if (entry === undefined) throw new Error(`仓库 ${url} 已不在配置中`)
+    return await serialize(this.syncLocks, entry.dir, async () => {
+      if (entry.retired) throw new Error(`仓库 ${url} 已不在配置中`)
+      const env = await this.deps.auth?.(url) ?? {}
+      const branch = entry.spec.branch ?? (await this.remoteHead(entry.dir, env)).replace(/^refs\/remotes\/origin\//, '')
+      return await task({ dir: entry.dir, branch, env })
+    })
   }
 
   private unknownMessage(ids: readonly string[]): string {

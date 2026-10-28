@@ -4,7 +4,9 @@
  * 提供入口 SKILL `/guanxiang`（识别日志属于哪个应用；用户显式调用，或在
  * 任务匹配已注册应用时由顶层 Agent 自行加载）和
  * `guanxiang_dispatch` 工具（按应用派发子 Agent，工作目录为该应用的代码
- * 仓库，首条消息用 `/<skill>` 加载仓库里的日志分析 SKILL）。应用仓库在设置
+ * 仓库，首条消息用 `/<skill>` 加载仓库里的日志分析 SKILL），以及开启 SKILL
+ * 改进时的 `guanxiang_propose_skill` 工具（经用户授权后把子 Agent 的 SKILL
+ * 修改提议推送到新分支并创建合并请求）。应用仓库在设置
  * 面板中只填 git 地址，由插件拉取；应用描述来自各仓库的
  * `.dsh/guanxiang.yaml`。
  *
@@ -24,6 +26,8 @@ export { pluginConfigSchema, resolveConfig } from './config.ts'
 export { DISPATCH_TOOL_NAME, Dispatcher } from './dispatch/tool.ts'
 export type { DispatchValue, TaskResult } from './dispatch/tool.ts'
 export { renderChildPrompt } from './dispatch/prompt.ts'
+export { PROPOSE_TOOL_NAME, SkillUpdater } from './skill-update/tool.ts'
+export type { DispatchedTask, ProposalCheck, ProposeStatus, ProposeValue } from './skill-update/tool.ts'
 export { ENTRY_SKILL_NAME, renderEntrySkill } from './skill/entry.ts'
 export { RepoRegistry } from './repos/registry.ts'
 export { readAppManifest, MANIFEST_PATH } from './repos/manifest.ts'
@@ -46,7 +50,7 @@ export interface GuanxiangPluginOptions extends ServiceOptions {
 }
 
 /**
- * Install the entry skill, the dispatch tool, and the settings routes, then
+ * Install the entry skill, the dispatch and SKILL proposal tools, and the settings routes, then
  * clone or update the configured repositories in the background.
  * @param ctx - plugin context.
  * @param config - loader-validated configuration.

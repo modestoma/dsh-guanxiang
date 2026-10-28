@@ -9,6 +9,7 @@
 import type { SkillDefinition, SkillProvider, SkillProviderControl } from '../host.ts'
 import type { AppManifest } from '../settings/contract.ts'
 import { DISPATCH_TOOL_NAME } from '../dispatch/tool.ts'
+import { PROPOSE_TOOL_NAME } from '../skill-update/tool.ts'
 
 /** Entry skill name, addressed as `/guanxiang`. */
 export const ENTRY_SKILL_NAME = 'guanxiang'
@@ -61,13 +62,20 @@ export function renderCatalog(apps: readonly AppManifest[]): string {
   return ['| 应用 id | 名称 | 描述 | 别名 | 日志特征 |', '| --- | --- | --- | --- | --- |', ...rows].join('\n')
 }
 
+function proposalStep(): string {
+  return `
+5. **SKILL 修改提议。** 派发结果中某个应用带有「SKILL 修改提议」时，在汇总回复末尾另起一节「SKILL 修改提议」：说明改动的文件和理由，附上 diff 文件中的关键改动；diff 较长时给出 diff 文件路径，在飞书话题中可以用 \`feishu_send_file\` 发送该文件。然后调用 \`${PROPOSE_TOOL_NAME}\`（\`workDir\` 取结果中给出的运行目录，\`summary\` 一句话说明改了什么）。工具会先请求用户授权，批准后推送新分支并创建合并请求。不要自己用 git 推送或修改仓库。工具返回后，把合并请求链接或「用户拒绝 / 无法授权」如实告诉用户。提议不可提交时，只说明原因。
+`
+}
+
 /**
  * The entry skill body.
  * @param apps - usable applications at load time.
  * @param maxAppsPerRequest - dispatch task ceiling.
+ * @param skillUpdates - whether SKILL improvement proposals are enabled.
  * @returns Markdown instructions.
  */
-export function renderEntrySkill(apps: readonly AppManifest[], maxAppsPerRequest: number): string {
+export function renderEntrySkill(apps: readonly AppManifest[], maxAppsPerRequest: number, skillUpdates: boolean): string {
   return `# 观象：日志分析入口
 
 观其象，知其因。没有 \`${DISPATCH_TOOL_NAME}\` 工具可用时（例如你是子 Agent），忽略本 SKILL，按普通方式完成任务。
@@ -109,7 +117,7 @@ ${renderCatalog(apps)}
 \`\`\`
 
    每个派发的应用都有一节。子 Agent 失败、超时或结论不充分时，在该节如实说明，不要编造结论。日志版本与仓库代码可能不一致，子 Agent 提示了版本差异时保留这条提示。
-`
+${skillUpdates ? proposalStep() : ''}`
 }
 
 /** Inputs the provider reads at each listing and load. */
@@ -126,6 +134,8 @@ export interface EntrySkillSource {
   apps(): readonly AppManifest[]
   /** Current dispatch task ceiling. */
   maxAppsPerRequest(): number
+  /** Whether SKILL improvement proposals are enabled. */
+  skillUpdates(): boolean
   /** Whether top-level agents may load the skill without `/guanxiang`. */
   readonly autoInvoke: boolean
   /**
@@ -176,7 +186,7 @@ export function createEntrySkillProvider(source: EntrySkillSource): {
         get: async (requested, options): Promise<SkillDefinition | undefined> => {
           if (requested.name !== ENTRY_SKILL_NAME) return undefined
           await source.prepare(options.signal)
-          return { ...summary(), content: renderEntrySkill(source.apps(), source.maxAppsPerRequest()) }
+          return { ...summary(), content: renderEntrySkill(source.apps(), source.maxAppsPerRequest(), source.skillUpdates()) }
         },
       }
     },
