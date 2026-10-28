@@ -131,7 +131,7 @@ describe('plugin', () => {
     const git: GitRunner = (args, options) => stalled.value && args[0] === 'fetch' ? new Promise(() => {}) : runGit(args, options)
     const h = await harness()
     cleanups.push(h.dispose)
-    apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: origin }], refreshWaitMs: 200 }, { overlayPath: join(dir, 'settings.json'), git })
+    apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: origin }], refreshWaitMs: 2000 }, { overlayPath: join(dir, 'settings.json'), git })
     const provider = h.skills[0]!
     const [candidate] = await provider.list({})
     expect((await provider.get(candidate!, {}))?.content).not.toContain('PushedHint')
