@@ -22,10 +22,15 @@ export interface RepoSpec {
   branch?: string
 }
 
+/** Credential reference grammar of `@deepseek-ai/dsh-credentials` (a POSIX shell identifier), which {@link GitCredentialSpec.tokenEnv} follows. */
+export const TOKEN_ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 /** HTTPS access token used for the repositories under one address prefix. */
 export interface GitCredentialSpec {
   /** `https://host[:port][/path]` (or `http://`) prefix; repository addresses under it use this token. */
   url: string
+  /** Display name the panel shows for this token; omitted shows the address. */
+  alias?: string
   /** HTTP username sent with the token; GitLab personal access tokens accept `oauth2`. */
   username: string
   /** Credential reference (environment-variable name) whose value in DSH's credential store is the token. */

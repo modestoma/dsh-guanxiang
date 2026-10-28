@@ -51,6 +51,10 @@ const CSS = `
 .gx__addRow .gx__input{flex:1 1 160px;width:auto}
 .gx__addRow .gx__input--branch{flex:0 1 140px}
 .gx__addRow--flush{padding:6px 0 0}
+.gx__addForm{display:flex;flex-direction:column;gap:6px;padding:10px 14px}
+.gx__field{display:flex;flex-direction:column;gap:2px;flex:1 1 160px;color:var(--gx-fg3);font-size:12px}
+.gx__field .gx__input{flex:none;width:100%}
+.gx__btn--end{align-self:flex-end;height:30px}
 .gx__emptyRow{padding:11px 14px;color:var(--gx-fg3);font-size:12px}
 .gx__btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;padding:0 12px;border:1px solid var(--gx-line);border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
 .gx__btn:hover:not(:disabled){background:var(--gx-hover)}

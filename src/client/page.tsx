@@ -77,7 +77,12 @@ function fromDraft(draft: Draft): EditableSettings {
   return {
     reposDir: draft.reposDir.trim(),
     repos: draft.repos.map(repo => repo.branch === undefined || repo.branch.trim() === '' ? { url: repo.url.trim() } : { url: repo.url.trim(), branch: repo.branch.trim() }),
-    gitCredentials: draft.gitCredentials.map(credential => ({ url: credential.url.trim(), username: credential.username.trim(), tokenEnv: credential.tokenEnv.trim() })),
+    gitCredentials: draft.gitCredentials.map(credential => ({
+      url: credential.url.trim(),
+      ...credential.alias === undefined || credential.alias.trim() === '' ? {} : { alias: credential.alias.trim() },
+      username: credential.username.trim(),
+      tokenEnv: credential.tokenEnv.trim(),
+    })),
     fetchIntervalMs: Math.round(positive(draft.fetchIntervalMin, '更新间隔', true) * MINUTE),
     maxAppsPerRequest: maxApps,
     dispatchTimeoutMs: Math.round(positive(draft.dispatchTimeoutMin, '派发超时') * MINUTE),
@@ -174,16 +179,17 @@ export function GuanxiangPanel(): JSX.Element {
 
   const dirty = state !== undefined && draft !== undefined && !sameSettings(draft, state.settings)
 
-  const run = async (action: () => Promise<StateWire>, success: string, resetDraft: boolean): Promise<boolean> => {
+  const run = async (action: () => Promise<StateWire>, success: string, resetDraft: boolean): Promise<StateWire | undefined> => {
     setBusy(true)
     setNotice(undefined)
     try {
-      adopt(await action(), resetDraft)
+      const next = await action()
+      adopt(next, resetDraft)
       setNotice({ kind: 'ok', text: success })
-      return true
+      return next
     } catch (error) {
       setNotice({ kind: 'error', text: messageOf(error) })
-      return false
+      return undefined
     } finally {
       setBusy(false)
     }
@@ -236,8 +242,15 @@ export function GuanxiangPanel(): JSX.Element {
               setDraft={setDraft}
               state={state}
               busy={busy}
-              onSave={(tokenEnv, value) => run(() => saveToken(tokenEnv, value), `已保存 ${tokenEnv}，使用它的仓库会重新拉取`, false)}
-              onClear={(tokenEnv) => run(() => clearToken(tokenEnv), `已清除面板保存的 ${tokenEnv}`, false)}
+              onAdd={async (credential, token) => {
+                const saved = await run(() => saveSettings({ ...state.settings, gitCredentials: [...state.settings.gitCredentials, credential] }), token === '' ? `已添加 ${credential.url}，请填入令牌` : `已添加 ${credential.url}`, false)
+                const added = saved?.settings.gitCredentials[state.settings.gitCredentials.length]
+                if (added === undefined) return false
+                setDraft(current => current === undefined || current.gitCredentials.some(item => item.url === added.url) ? current : { ...current, gitCredentials: [...current.gitCredentials, added] })
+                return token === '' || await run(() => saveToken(added.tokenEnv, token), `已添加 ${added.url} 并保存令牌，使用它的仓库会重新拉取`, false) !== undefined
+              }}
+              onSave={async (tokenEnv, value) => await run(() => saveToken(tokenEnv, value), `已保存 ${tokenEnv}，使用它的仓库会重新拉取`, false) !== undefined}
+              onClear={(tokenEnv) => { void run(() => clearToken(tokenEnv), `已清除面板保存的 ${tokenEnv}`, false) }}
             />
           : null}
         {tab === 'download' ? <DownloadTab draft={draft} setDraft={setDraft} overridden={state.overridden} /> : null}
@@ -314,7 +327,8 @@ function ReposTab({ draft, setDraft, state, busy, onSync }: TabProps & { state: 
 }
 
 const DEFAULT_USERNAME = 'oauth2'
-const DEFAULT_TOKEN_ENV = 'GITLAB_TOKEN'
+/** Prefix of the credential keys the panel allocates; namespaced so an unrelated `GITLAB_TOKEN` in the environment is not picked up. */
+const DEFAULT_TOKEN_ENV = 'GUANXIANG_GITLAB_TOKEN'
 
 /** Credential store layers of `@deepseek-ai/dsh-credentials-local` other than its own file. */
 const TOKEN_SOURCES: Readonly<Record<string, string>> = { 'env': '启动环境变量', 'project-env': '项目 .env', 'user-env': '$DSH_HOME/.env' }
@@ -327,54 +341,84 @@ function tokenPill(token: TokenStatusWire | undefined): JSX.Element {
   return <span className="gx__pill gx__pill--ok"><span className="gx__dot" />已设置{source === undefined ? '' : `（来自${source}）`}</span>
 }
 
-function TokensTab({ draft, setDraft, state, busy, onSave, onClear }: TabProps & {
+/**
+ * First of `GUANXIANG_GITLAB_TOKEN`, `GUANXIANG_GITLAB_TOKEN_2`, … that no
+ * saved or drafted entry uses.
+ * @param used - keys already in use.
+ * @returns a free key.
+ */
+function freeTokenEnv(used: ReadonlySet<string>): string {
+  if (!used.has(DEFAULT_TOKEN_ENV)) return DEFAULT_TOKEN_ENV
+  let index = 2
+  while (used.has(`${DEFAULT_TOKEN_ENV}_${index}`)) index += 1
+  return `${DEFAULT_TOKEN_ENV}_${index}`
+}
+
+function TokensTab({ draft, setDraft, state, busy, onAdd, onSave, onClear }: TabProps & {
   state: StateWire
   busy: boolean
+  /** Saves the entry, then its token; resolves whether both succeeded. */
+  onAdd: (credential: GitCredentialSpec, token: string) => Promise<boolean>
   onSave: (tokenEnv: string, value: string) => Promise<boolean>
-  onClear: (tokenEnv: string) => Promise<boolean>
+  onClear: (tokenEnv: string) => void
 }): JSX.Element {
   const [url, setUrl] = useState('')
-  const [username, setUsername] = useState(DEFAULT_USERNAME)
-  const [tokenEnv, setTokenEnv] = useState(DEFAULT_TOKEN_ENV)
+  const [alias, setAlias] = useState('')
+  const [token, setToken] = useState('')
+  const [addError, setAddError] = useState<string | undefined>()
+  // Spans both requests of one addition; `busy` drops between them.
+  const [adding, setAdding] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
-  const tokens = useMemo(() => new Map(state.credentials.tokens.map(token => [token.tokenEnv, token])), [state.credentials.tokens])
+  const tokens = useMemo(() => new Map(state.credentials.tokens.map(item => [item.tokenEnv, item])), [state.credentials.tokens])
   const saved = useMemo(() => new Set(state.settings.gitCredentials.map(credential => credential.tokenEnv)), [state.settings.gitCredentials])
+  const complete = url.trim() !== '' && alias.trim() !== '' && token.trim() !== ''
   const add = (): void => {
-    const trimmed = url.trim()
-    if (trimmed === '' || draft.gitCredentials.some(credential => credential.url === trimmed)) return
-    setDraft({ ...draft, gitCredentials: [...draft.gitCredentials, { url: trimmed, username: username.trim() === '' ? DEFAULT_USERNAME : username.trim(), tokenEnv: tokenEnv.trim() === '' ? DEFAULT_TOKEN_ENV : tokenEnv.trim() }] })
-    setUrl('')
+    if (!complete || busy || adding) return
+    const address = url.trim()
+    if (state.settings.gitCredentials.some(credential => credential.url === address)) {
+      setAddError('这个地址已经添加过了，请在上面的列表里更新它的令牌。')
+      return
+    }
+    setAddError(undefined)
+    setAdding(true)
+    const tokenEnv = freeTokenEnv(new Set([...saved, ...draft.gitCredentials.map(credential => credential.tokenEnv)]))
+    void onAdd({ url: address, alias: alias.trim(), username: DEFAULT_USERNAME, tokenEnv }, token.trim()).then((ok) => {
+      if (!ok) return
+      setUrl('')
+      setAlias('')
+      setToken('')
+    }).finally(() => { setAdding(false) })
   }
   const save = (name: string): void => {
     const value = values[name]?.trim() ?? ''
-    if (value === '') return
+    if (value === '' || busy || adding) return
     void onSave(name, value).then((ok) => { if (ok) setValues(current => ({ ...current, [name]: '' })) })
   }
+  const submitOnEnter = (event: { key: string }): void => { if (event.key === 'Enter') add() }
   return (
     <section className="gx__sec">
-      <h2 className="gx__secTitle">HTTPS 访问令牌 <Overridden keys={state.overridden} name="gitCredentials" /></h2>
+      <h2 className="gx__secTitle">GitLab 访问令牌 <Overridden keys={state.overridden} name="gitCredentials" /></h2>
       {state.credentials.available ? null : <div className="gx__notice gx__notice--error">当前 DSH 组合没有加载凭据服务（@deepseek-ai/dsh-credentials-local），无法保存或读取令牌。</div>}
       <div className="gx__list">
-        {draft.gitCredentials.length === 0 ? <div className="gx__emptyRow">还没有访问令牌。用 https 地址拉取 GitLab 等私有仓库时，添加服务器地址后保存，再填入个人访问令牌。</div> : null}
+        {draft.gitCredentials.length === 0 ? <div className="gx__emptyRow">还没有访问令牌。用 https 地址拉取 GitLab 私有仓库时，在下面填入 GitLab 地址、令牌别名和令牌。</div> : null}
         {draft.gitCredentials.map((credential, index) => {
-          const token = saved.has(credential.tokenEnv) ? tokens.get(credential.tokenEnv) : undefined
+          const status = saved.has(credential.tokenEnv) ? tokens.get(credential.tokenEnv) : undefined
           const value = values[credential.tokenEnv] ?? ''
           return (
             <div key={credential.url} className="gx__row gx__row--top">
               <div className="gx__rowText">
                 <div className="gx__rowLabel">
-                  <span className="gx__mono">{credential.url}</span>
-                  <span className="gx__tag">用户名 {credential.username}</span>
-                  {tokenPill(token)}
+                  <span>{credential.alias ?? credential.url}</span>
+                  {tokenPill(status)}
                 </div>
-                <div className="gx__rowSummary">令牌名称 <span className="gx__mono">{credential.tokenEnv}</span></div>
-                {token?.error === undefined ? null : <div className="gx__rowError">{token.error}</div>}
-                {token !== undefined && token.writable
+                {credential.alias === undefined ? null : <div className="gx__rowSummary gx__mono">{credential.url}</div>}
+                {status?.error === undefined ? null : <div className="gx__rowError">{status.error}</div>}
+                {status !== undefined && status.writable
                   ? (
                       <div className="gx__addRow gx__addRow--flush">
-                        <input className="gx__input gx__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder={token.configured ? '输入新令牌以替换' : '粘贴个人访问令牌，例如 glpat-…'} value={value} onChange={(event) => { setValues({ ...values, [credential.tokenEnv]: event.target.value }) }} onKeyDown={(event) => { if (event.key === 'Enter') save(credential.tokenEnv) }} />
-                        <button type="button" className="gx__btn" disabled={busy || value.trim() === ''} onClick={() => { save(credential.tokenEnv) }}>保存令牌</button>
-                        {token.configured && token.source === 'file' ? <button type="button" className="gx__btn gx__btn--ghost" disabled={busy} onClick={() => { void onClear(credential.tokenEnv) }}>清除</button> : null}
+                        <input className="gx__input gx__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder={status.configured ? '输入新令牌以替换' : '粘贴令牌'} value={value} onChange={(event) => { setValues({ ...values, [credential.tokenEnv]: event.target.value }) }} onKeyDown={(event) => { if (event.key === 'Enter') save(credential.tokenEnv) }} />
+                        <button type="button" className="gx__btn" disabled={busy || adding || value.trim() === ''} onClick={() => { save(credential.tokenEnv) }}>保存令牌</button>
+                        {status.configured && status.source === 'file' ? <button type="button" className="gx__btn gx__btn--ghost" disabled={busy} onClick={() => { onClear(credential.tokenEnv) }}>清除</button> : null}
                       </div>
                     )
                   : null}
@@ -385,14 +429,17 @@ function TokensTab({ draft, setDraft, state, busy, onSave, onClear }: TabProps &
             </div>
           )
         })}
-        <div className="gx__addRow">
-          <input className="gx__input" placeholder="服务器地址，例如 https://gitlab.example.com" value={url} onChange={(event) => { setUrl(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
-          <input className="gx__input gx__input--branch" placeholder={`用户名（默认 ${DEFAULT_USERNAME}）`} value={username} onChange={(event) => { setUsername(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
-          <input className="gx__input gx__input--branch gx__mono" placeholder="令牌名称" value={tokenEnv} onChange={(event) => { setTokenEnv(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
-          <button type="button" className="gx__btn" disabled={url.trim() === ''} onClick={add}>添加</button>
+        <div className="gx__addForm">
+          <div className="gx__addRow gx__addRow--flush">
+            <label className="gx__field">GitLab 地址<input className="gx__input" placeholder="https://gitlab.example.com" value={url} onChange={(event) => { setUrl(event.target.value) }} onKeyDown={submitOnEnter} /></label>
+            <label className="gx__field">令牌别名<input className="gx__input" placeholder="例如 guanxiang" value={alias} onChange={(event) => { setAlias(event.target.value) }} onKeyDown={submitOnEnter} /></label>
+            <label className="gx__field">令牌<input className="gx__input gx__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder="粘贴个人访问令牌" value={token} onChange={(event) => { setToken(event.target.value) }} onKeyDown={submitOnEnter} /></label>
+            <button type="button" className="gx__btn gx__btn--end" disabled={busy || adding || !complete} onClick={add}>添加</button>
+          </div>
+          {addError === undefined ? null : <div className="gx__rowError">{addError}</div>}
         </div>
       </div>
-      <p className="gx__secFoot">地址在这个前缀下的 https 仓库使用对应令牌拉取（多个匹配时取路径最长的），ssh 地址不受影响。GitLab 个人访问令牌需要 read_repository 权限，用户名填 oauth2 即可。令牌保存在 DSH 凭据库（默认 $DSH_HOME/.credentials.yaml，仅本机用户可读），面板只显示是否已设置；也可以设置与令牌名称同名的环境变量。拉取时令牌只经环境变量交给 git，不写入仓库配置、日志或模型上下文。</p>
+      <p className="gx__secFoot">地址在这个前缀下的 https 仓库使用对应令牌（多个匹配时取路径最长的），ssh 地址不受影响。拉取需要 read_repository 权限，开启 SKILL 改进时还需要 write_repository。令牌保存在 DSH 凭据库（默认 $DSH_HOME/.credentials.yaml，仅本机用户可读），面板只显示是否已设置；令牌只经环境变量交给 git，不写入设置文件、仓库配置、日志或模型上下文。</p>
     </section>
   )
 }

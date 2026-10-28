@@ -9,15 +9,14 @@
 
 import type { GitCredentialSpec } from '../settings/contract.ts'
 
+export { TOKEN_ENV_PATTERN } from '../settings/contract.ts'
+
 /** Environment variables the helper reads; set only on git child processes. */
 const USERNAME_VARIABLE = 'GUANXIANG_GIT_USERNAME'
 const TOKEN_VARIABLE = 'GUANXIANG_GIT_TOKEN'
 
 /** Answers git's `get` request from the two variables and ignores `store` and `erase`. */
 const HELPER = `!f() { test "$1" = get || exit 0; printf 'username=%s\\npassword=%s\\n' "$${USERNAME_VARIABLE}" "$${TOKEN_VARIABLE}"; }; f`
-
-/** Credential reference grammar of `@deepseek-ai/dsh-credentials` (a POSIX shell identifier). */
-export const TOKEN_ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /** Longest accepted token; personal access tokens are far shorter. */
 export const MAX_TOKEN_LENGTH = 4096
