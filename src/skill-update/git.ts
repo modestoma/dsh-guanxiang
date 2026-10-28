@@ -133,8 +133,10 @@ function oneLine(text: string): string {
 
 /**
  * Push a commit to a new remote branch and ask GitLab to open a merge request
- * for it (`merge_request.*` push options). A server that does not support
- * push options rejects the push.
+ * for it (`merge_request.*` push options). The push carries an empty lease on
+ * the branch, so it fails instead of updating a branch that appeared after
+ * {@link remoteBranchExists} was checked. A server that does not support push
+ * options rejects the push.
  * @param commands - git runner and timeout.
  * @param dir - clone directory.
  * @param commit - commit to push.
@@ -150,6 +152,6 @@ export async function pushForMergeRequest(commands: GitCommands, dir: string, co
     `merge_request.title=${oneLine(request.title)}`,
     `merge_request.description=${oneLine(request.description)}`,
   ].flatMap(option => ['-o', option])
-  const output = await commands.git(['push', '--porcelain', ...options, 'origin', `${commit}:refs/heads/${branch}`], { cwd: dir, timeoutMs: commands.timeoutMs, env, output: 'all' })
+  const output = await commands.git(['push', '--porcelain', `--force-with-lease=refs/heads/${branch}:`, ...options, 'origin', `${commit}:refs/heads/${branch}`], { cwd: dir, timeoutMs: commands.timeoutMs, env, output: 'all' })
   return /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(output)?.[0]
 }

@@ -27,7 +27,7 @@ export interface GitRunOptions {
   env?: Readonly<Record<string, string>>
   /** Text written to the command's standard input. */
   input?: string
-  /** `all` resolves stdout followed by stderr, for commands such as `push` that report on stderr. */
+  /** `all` resolves, or reports on failure, stdout followed by stderr, for commands such as `push --porcelain` that split their report. */
   output?: 'stdout' | 'all'
 }
 
@@ -64,7 +64,7 @@ export const runGit: GitRunner = (args, options) => new Promise((resolve, reject
       resolve(options.output === 'all' ? `${stdout}${stderr}` : stdout)
       return
     }
-    const output = (stderr.trim() !== '' ? stderr : stdout).trim()
+    const output = (options.output === 'all' || stderr.trim() === '' ? `${stdout}${stderr}` : stderr).trim()
     const killed = (error as { killed?: boolean }).killed === true
     reject(new GitError(args, killed ? `超时（${options.timeoutMs} ms）后被终止${output === '' ? '' : `：${output}`}` : output || error.message))
   })

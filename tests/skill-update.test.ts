@@ -201,6 +201,20 @@ describe('guanxiang_propose_skill', () => {
     await expect(withoutApproval.execute(args, exec)).rejects.toThrow('没有审批服务')
   })
 
+  it('never updates a branch that appeared while the user was deciding', async () => {
+    const { origin, task, updater, agent, approval } = await setup()
+    await writeProposal(task.workDir, { 'SKILL.md': '# 新版\n' })
+    await updater.inspect(task)
+    approval.request.mockImplementationOnce(async (req: ApprovalRequest) => {
+      const branch = /推送新分支 (\S+)，/.exec(req.reason ?? '')?.[1] as string
+      git(origin, 'branch', branch, task.commit)
+      return 'allowed-once'
+    })
+    await expect(updater.execute({ workDir: task.workDir, summary: '改写' }, { signal: new AbortController().signal, agent })).rejects.toThrow(/\[rejected\] \(stale info\)/)
+    const [branch] = git(origin, 'branch', '--list', 'guanxiang/*', '--format=%(refname:short)').trim().split('\n')
+    expect(git(origin, 'rev-parse', branch!).trim()).toBe(task.commit)
+  })
+
   it('stops when the approval request is withdrawn by cancellation', async () => {
     const { task, updater, agent, answer, origin } = await setup()
     await writeProposal(task.workDir, { 'SKILL.md': '# 新版\n' })
