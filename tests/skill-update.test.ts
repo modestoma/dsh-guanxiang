@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -145,6 +145,18 @@ describe('guanxiang_propose_skill', () => {
 
     await writeProposal(task.workDir, { 'SKILL.md': skill })
     expect(await updater.inspect(task)).toEqual({ ok: false, error: expect.stringContaining('没有改动') })
+  })
+
+  it('replaces a symbolic link left at the diff path instead of writing through it', async () => {
+    const { origin, task, updater } = await setup()
+    const victim = join(origin, SKILL)
+    const before = await readFile(victim, 'utf8')
+    await symlink(victim, join(task.workDir, DIFF_FILE))
+    await writeProposal(task.workDir, { 'SKILL.md': '# 新版\n' })
+    expect(await updater.inspect(task)).toMatchObject({ ok: true })
+    expect(await readFile(victim, 'utf8')).toBe(before)
+    expect((await lstat(join(task.workDir, DIFF_FILE))).isFile()).toBe(true)
+    expect(await readFile(join(task.workDir, DIFF_FILE), 'utf8')).toContain('+# 新版')
   })
 
   it('pushes a new branch and opens a merge request only after the user allows it', async () => {

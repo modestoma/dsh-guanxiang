@@ -14,7 +14,8 @@
  * @module dsh-guanxiang/skill-update/tool
  */
 
-import { writeFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { rename, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { describeIssue } from '../config.ts'
@@ -159,6 +160,22 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * Write a file in an agent-writable directory without following whatever
+ * entry the agent left at its path: the content goes to a new file created
+ * exclusively, which then replaces the directory entry.
+ */
+async function replaceFile(path: string, content: string): Promise<void> {
+  const temporary = `${path}.${randomBytes(6).toString('hex')}.tmp`
+  try {
+    await writeFile(temporary, content, { flag: 'wx' })
+    await rename(temporary, path)
+  } catch (error) {
+    await rm(temporary, { force: true })
+    throw error
+  }
+}
+
 function skillDirOf(app: AppManifest): string {
   return `.dsh/skills/${app.skill}`
 }
@@ -216,7 +233,7 @@ export class SkillUpdater {
     }))
     if (change.files.length === 0) throw new ProposalError(`提议的文件与提交 ${task.commit.slice(0, 12)} 中的 SKILL 相同，没有改动`)
     const diffPath = join(task.workDir, DIFF_FILE)
-    await writeFile(diffPath, change.diff)
+    await replaceFile(diffPath, change.diff)
     return { reason: proposal.reason, change, target, diffPath }
   }
 
