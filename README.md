@@ -93,6 +93,10 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
       - url: git@github.com:example/order-service.git
       - url: https://github.com/example/pay-service.git
         branch: release                # 可选，默认跟随远端默认分支
+    gitCredentials:                    # https 仓库的访问令牌，只写令牌名称，不写令牌值
+      - url: https://gitlab.example.com  # 地址前缀；其下的 https 仓库使用该令牌
+        username: oauth2               # 可选，默认 oauth2
+        tokenEnv: GITLAB_TOKEN         # DSH 凭据库中的令牌名称，也可以是同名环境变量
     fetchIntervalMs: 0                 # 加载 /guanxiang 时距上次拉取超过该时间的仓库先 fetch；0 = 每次
     maxAppsPerRequest: 4               # 单次派发的任务上限
     dispatchTimeoutMs: 1800000         # 等待全部子 Agent 的上限
@@ -106,7 +110,18 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
     autoInvoke: true                   # 任务匹配已注册应用时模型可自行加载入口 SKILL；false = 只能输入 /guanxiang
 ```
 
-配置在加载时校验，不合法时插件加载失败。git 地址支持 https/http/ssh/git/file URL、`user@host:path` 和绝对路径，拉取时使用本机已有的 git 凭据（SSH key 或 credential helper），插件不保存密码或 token，也不会弹出交互式输入。
+配置在加载时校验，不合法时插件加载失败。git 地址支持 https/http/ssh/git/file URL、`user@host:path` 和绝对路径，拉取时使用本机已有的 git 凭据（SSH key 或 credential helper），不会弹出交互式输入。
+
+### 访问令牌
+
+用 https 地址拉取 GitLab 等私有仓库时，可以配置个人访问令牌（GitLab 需要 `read_repository` 权限）：
+
+- **配置只写名称。** `gitCredentials` 的每一项把一个地址前缀（`https://主机[:端口][/路径]`）对应到一个令牌名称 `tokenEnv`；地址在前缀下的 https 仓库使用该令牌，多个前缀匹配时取路径最长的。ssh、`user@host:path` 和本地路径不受影响。
+- **令牌值在 DSH 凭据库。** 令牌通过 DSH 的 `ctx.credentials` 读取（默认组合加载的 `@deepseek-ai/dsh-credentials-local`，文件 `$DSH_HOME/.credentials.yaml`，仅本机用户可读），可以在设置面板的「访问令牌」分页保存，也可以设置同名环境变量或写进 `.env`。每次拉取都重新读取，更换令牌不用重启。面板接口只接受已保存的配置引用的名称，也从不返回令牌值。
+- **只交给 git。** 拉取时令牌经环境变量交给这一次的 git 进程，由只对该主机生效的凭据助手在服务器要求认证时提供，本机为该主机配置的其他凭据助手不参与；令牌不出现在命令行参数、`.git/config`、日志或模型上下文里。需要 git 2.31 及以上版本。
+- **缺失时明确报错。** 地址匹配了令牌配置但令牌未设置，或 DSH 组合没有凭据服务时，该仓库拉取失败，原因显示在设置面板。
+
+凭据库文件只防其他系统用户。与 DSH 中的模型 API Key 一样，Agent 的命令以同一系统用户运行，文件权限不能把令牌与 Agent 隔离（见 `@deepseek-ai/dsh-credentials-local` 文档）；建议使用只读权限、设置过期时间的令牌。
 
 子 Agent 的命令在 dsh 的文件沙箱中运行：仓库只读，只有父会话的项目目录可写，运行目录就在其中。Linux 的 bubblewrap 沙箱会把 `/tmp` 换成空的临时目录，所以 `reposDir` 不要放在 `/tmp` 下，否则子 Agent 的命令看不到仓库。
 
@@ -119,10 +134,11 @@ DSH Web 左侧栏的「观象」入口打开整页设置面板：
 | 分页 | 内容 |
 |---|---|
 | 应用仓库 | git 地址列表（分支可选）、每个仓库的拉取状态、提交号、应用描述与不可用原因，单个或全部重新拉取 |
+| 访问令牌 | https 地址前缀、用户名与令牌名称；保存后填入令牌，显示是否已设置及来源，可清除 |
 | 日志下载 | 允许下载的域名、单文件大小上限、下载超时 |
 | 高级 | 拉取目录、更新间隔、单次应用数上限、派发超时，恢复 cordis.yml 配置 |
 
-面板保存的值写入 `$DSH_HOME/guanxiang/settings.json`（只保存与 cordis.yml 不同的字段），按与配置相同的规则校验。面板接口 `/guanxiang/*` 使用 DSH 自己的登录与来源校验，写操作另做同源校验。
+面板保存的值写入 `$DSH_HOME/guanxiang/settings.json`（只保存与 cordis.yml 不同的字段），按与配置相同的规则校验；令牌值不在其中，存入 DSH 凭据库。面板接口 `/guanxiang/*` 使用 DSH 自己的登录与来源校验，写操作另做同源校验。
 
 ## 应用仓库约定
 
@@ -169,7 +185,7 @@ pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + �
 |---|---|
 | `src/index.ts` | Cordis 插件入口 |
 | `src/service.ts` | 生效设置、注册表、入口 SKILL 与派发工具的注册 |
-| `src/repos/` | git 拉取、应用描述校验、应用注册表 |
+| `src/repos/` | git 拉取、访问令牌、应用描述校验、应用注册表 |
 | `src/skill/entry.ts` | `/guanxiang` 入口 SKILL |
 | `src/dispatch/` | 派发工具、日志下载、子 Agent 首条消息 |
 | `src/settings/` | 面板契约、覆盖文件、HTTP 路由 |

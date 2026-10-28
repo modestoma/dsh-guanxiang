@@ -11,13 +11,25 @@ export const STATE_ROUTE = '/guanxiang/state'
 export const SETTINGS_ROUTE = '/guanxiang/settings'
 /** POST：立即重新拉取全部仓库，或 body `{ url }` 指定的一个仓库。 */
 export const SYNC_ROUTE = '/guanxiang/sync'
+/** PUT：body `{ tokenEnv, value }` 把令牌存入 DSH 凭据库；DELETE：body `{ tokenEnv }` 删除已存的值。只接受已保存的访问令牌配置引用的名称。 */
+export const TOKEN_ROUTE = '/guanxiang/token'
 
 /** One configured application repository. */
 export interface RepoSpec {
-  /** Git remote address, cloned with the host machine's existing git credentials. */
+  /** Git remote address, cloned with the host machine's existing git credentials or a matching {@link GitCredentialSpec}. */
   url: string
   /** Remote branch to follow; omitted follows the remote's default branch. */
   branch?: string
+}
+
+/** HTTPS access token used for the repositories under one address prefix. */
+export interface GitCredentialSpec {
+  /** `https://host[:port][/path]` (or `http://`) prefix; repository addresses under it use this token. */
+  url: string
+  /** HTTP username sent with the token; GitLab personal access tokens accept `oauth2`. */
+  username: string
+  /** Credential reference (environment-variable name) whose value in DSH's credential store is the token. */
+  tokenEnv: string
 }
 
 /** Log URL download policy. */
@@ -36,6 +48,8 @@ export interface EditableSettings {
   reposDir: string
   /** Application repositories to clone and keep updated. */
   repos: RepoSpec[]
+  /** HTTPS access tokens by address prefix; the token values stay in DSH's credential store. */
+  gitCredentials: GitCredentialSpec[]
   /** Minimum age of a repository's last sync before loading `/guanxiang` syncs it again, in milliseconds; 0 syncs on every load. */
   fetchIntervalMs: number
   /** Maximum number of child analyses one dispatch may start. */
@@ -47,7 +61,7 @@ export interface EditableSettings {
 }
 
 /** Keys of {@link EditableSettings}, in panel order. */
-export const EDITABLE_KEYS = ['reposDir', 'repos', 'fetchIntervalMs', 'maxAppsPerRequest', 'dispatchTimeoutMs', 'download'] as const satisfies readonly (keyof EditableSettings)[]
+export const EDITABLE_KEYS = ['reposDir', 'repos', 'gitCredentials', 'fetchIntervalMs', 'maxAppsPerRequest', 'dispatchTimeoutMs', 'download'] as const satisfies readonly (keyof EditableSettings)[]
 
 /** One editable key. */
 export type EditableKey = (typeof EDITABLE_KEYS)[number]
@@ -94,6 +108,27 @@ export interface RepoStatusWire {
   activeRuns: number
 }
 
+/** Whether one referenced token has a value — never the value. */
+export interface TokenStatusWire {
+  tokenEnv: string
+  /** Whether resolving the reference currently returns a value. */
+  configured: boolean
+  /** Credential store layer supplying the value (`file`, `env`, `project-env`, `user-env`); absent while unconfigured. */
+  source?: string
+  /** Whether the panel can store a value for this reference. */
+  writable: boolean
+  /** Why the credential store could not describe the reference. */
+  error?: string
+}
+
+/** Credential store view of the panel. */
+export interface CredentialsWire {
+  /** Whether the DSH composition provides `ctx.credentials`; without it tokens cannot be stored or read. */
+  available: boolean
+  /** One entry per distinct `tokenEnv` of the effective settings; empty while unavailable. */
+  tokens: TokenStatusWire[]
+}
+
 /** `GET /guanxiang/state` response. */
 export interface StateWire {
   /** Effective settings: cordis.yml values with panel overrides applied. */
@@ -105,6 +140,7 @@ export interface StateWire {
   /** Why the overlay file was ignored (unreadable or invalid); panel saves replace it. */
   overlayError?: string
   repos: RepoStatusWire[]
+  credentials: CredentialsWire
 }
 
 /** Successful mutation response. */

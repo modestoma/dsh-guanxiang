@@ -3,7 +3,8 @@
  *
  * 只声明本插件实际调用的字段，不在运行时 import 任何 `@deepseek-ai/dsh-*`
  * 包；字段含义以 DSH 源码为准（`packages/core/tools`、`packages/skill/skill`、
- * `packages/subagent/subagent`、`packages/session/working-directory`）。
+ * `packages/subagent/subagent`、`packages/session/working-directory`、
+ * `packages/credentials/credentials`）。
  *
  * @module dsh-guanxiang/host
  */
@@ -177,6 +178,25 @@ export interface HostWebServer {
 /** The optional `ctx.connection` slice: DSH's Host/Origin fence plus login check. */
 export interface HostRequestGate {
   requestRejection(request: { readonly headers: IncomingMessage['headers'] }): 401 | 403 | undefined
+}
+
+/** Source and writability of one credential reference — never its value. */
+export interface HostCredentialInfo {
+  readonly configured: boolean
+  readonly source?: string
+  readonly writable: boolean
+}
+
+/**
+ * The optional `ctx.credentials` slice (`@deepseek-ai/dsh-credentials`).
+ * References are environment-variable names; DSH brands them, which is a
+ * compile-time marker only.
+ */
+export interface HostCredentials {
+  resolve(ref: string): Promise<{ readonly value: string; readonly source: string } | undefined>
+  describe(ref: string): Promise<HostCredentialInfo>
+  set(ref: string, value: string): Promise<void>
+  unset(ref: string): Promise<void>
 }
 
 /** Cordis logger slice. */

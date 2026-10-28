@@ -4,7 +4,7 @@
  * @module dsh-guanxiang/client/api
  */
 
-import { SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE } from '../settings/contract.ts'
+import { SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE, TOKEN_ROUTE } from '../settings/contract.ts'
 import type { EditableSettings, MutationError, MutationOk, StateWire } from '../settings/contract.ts'
 
 /**
@@ -74,4 +74,23 @@ export async function resetSettings(): Promise<StateWire> {
  */
 export async function syncRepos(url?: string): Promise<StateWire> {
   return (await request<MutationOk>(SYNC_ROUTE, { method: 'POST', body: JSON.stringify(url === undefined ? {} : { url }) })).state
+}
+
+/**
+ * Store an access token in DSH's credential store.
+ * @param tokenEnv - credential reference named by a saved access-token configuration.
+ * @param value - token value.
+ * @returns the new state, which reports only whether the token is set.
+ */
+export async function saveToken(tokenEnv: string, value: string): Promise<StateWire> {
+  return (await request<MutationOk>(TOKEN_ROUTE, { method: 'PUT', body: JSON.stringify({ tokenEnv, value }) })).state
+}
+
+/**
+ * Remove a stored access token.
+ * @param tokenEnv - credential reference named by a saved access-token configuration.
+ * @returns the new state.
+ */
+export async function clearToken(tokenEnv: string): Promise<StateWire> {
+  return (await request<MutationOk>(TOKEN_ROUTE, { method: 'DELETE', body: JSON.stringify({ tokenEnv }) })).state
 }
