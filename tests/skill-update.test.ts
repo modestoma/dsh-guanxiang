@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { defaultsOf, resolveConfig } from '../src/config.ts'
 import type { Agent, ApprovalOutcome, ApprovalRequest, HostApproval } from '../src/host.ts'
 import { runGit } from '../src/repos/git.ts'
@@ -98,7 +99,7 @@ interface Setup {
   updater: SkillUpdater
   settings: EditableSettings
   agent: Agent
-  approval: HostApproval & { requests: ApprovalRequest[] }
+  approval: { requests: ApprovalRequest[]; request: Mock<HostApproval['request']> }
   answer: { value: ApprovalOutcome }
 }
 
