@@ -144,7 +144,7 @@ DSH Web 左侧栏的「观象」入口打开整页设置面板：
 
 ## 应用仓库约定
 
-每个应用仓库需要两样东西（完整示例见 [examples/order-service](examples/order-service)）：
+每个应用仓库需要两样东西（完整示例见 [examples/order-service](examples/order-service)，接入步骤与 SKILL 写作要点见[应用仓库接入指南](docs/app-repo-guide.md)）：
 
 `.dsh/logalyze.yaml` 应用描述：
 

@@ -25,6 +25,7 @@
     "src",
     "lib",
     "examples",
+    "docs",
     "README.md",
     "cordis.patch.yml"
   ],
