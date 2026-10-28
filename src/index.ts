@@ -1,7 +1,8 @@
 /**
  * 观象 GuanXiang —— DeepSeek Harness 日志分析插件。观其象，知其因。
  *
- * 提供一个用户斜杠入口 `/guanxiang`（入口 SKILL：识别日志属于哪个应用）和
+ * 提供入口 SKILL `/guanxiang`（识别日志属于哪个应用；用户显式调用，或在
+ * 任务匹配已注册应用时由顶层 Agent 自行加载）和
  * `guanxiang_dispatch` 工具（按应用派发子 Agent，工作目录为该应用的代码
  * 仓库，首条消息用 `/<skill>` 加载仓库里的日志分析 SKILL）。应用仓库在设置
  * 面板中只填 git 地址，由插件拉取；应用描述来自各仓库的
