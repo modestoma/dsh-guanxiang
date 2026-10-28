@@ -361,6 +361,8 @@ function TokensTab({ draft, setDraft, state, busy, onAdd, onSave, onClear }: Tab
   const [username, setUsername] = useState('')
   const [tokenEnv, setTokenEnv] = useState('')
   const [addError, setAddError] = useState<string | undefined>()
+  // Spans both requests of one addition; `busy` drops between them.
+  const [adding, setAdding] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
   const tokens = useMemo(() => new Map(state.credentials.tokens.map(item => [item.tokenEnv, item])), [state.credentials.tokens])
   const saved = useMemo(() => new Set(state.settings.gitCredentials.map(credential => credential.tokenEnv)), [state.settings.gitCredentials])
@@ -368,7 +370,7 @@ function TokensTab({ draft, setDraft, state, busy, onAdd, onSave, onClear }: Tab
   const add = (): void => {
     const address = url.trim()
     const name = tokenEnv.trim() === '' ? defaultTokenEnv : tokenEnv.trim()
-    if (address === '') return
+    if (address === '' || busy || adding) return
     if (!TOKEN_ENV_PATTERN.test(name)) {
       // Never echo the value: this field is where a token gets pasted by mistake.
       setAddError('「凭据库键名」只能包含字母、数字和下划线，且不能以数字开头。个人访问令牌请填在「个人访问令牌」框里。')
@@ -379,17 +381,18 @@ function TokensTab({ draft, setDraft, state, busy, onAdd, onSave, onClear }: Tab
       return
     }
     setAddError(undefined)
+    setAdding(true)
     void onAdd({ url: address, username: username.trim() === '' ? DEFAULT_USERNAME : username.trim(), tokenEnv: name }, token.trim()).then((ok) => {
       if (!ok) return
       setUrl('')
       setToken('')
       setUsername('')
       setTokenEnv('')
-    })
+    }).finally(() => { setAdding(false) })
   }
   const save = (name: string): void => {
     const value = values[name]?.trim() ?? ''
-    if (value === '') return
+    if (value === '' || busy || adding) return
     void onSave(name, value).then((ok) => { if (ok) setValues(current => ({ ...current, [name]: '' })) })
   }
   return (
@@ -430,7 +433,7 @@ function TokensTab({ draft, setDraft, state, busy, onAdd, onSave, onClear }: Tab
           <div className="gx__addRow gx__addRow--flush">
             <input className="gx__input" aria-label="服务器地址" placeholder="服务器地址，例如 https://gitlab.example.com" value={url} onChange={(event) => { setUrl(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
             <input className="gx__input gx__mono" aria-label="个人访问令牌" type="password" autoComplete="new-password" spellCheck={false} placeholder="个人访问令牌（可稍后填写）" value={token} onChange={(event) => { setToken(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
-            <button type="button" className="gx__btn" disabled={busy || url.trim() === ''} onClick={add}>添加</button>
+            <button type="button" className="gx__btn" disabled={busy || adding || url.trim() === ''} onClick={add}>添加</button>
           </div>
           <details className="gx__more">
             <summary>高级：用户名与凭据库键名</summary>
