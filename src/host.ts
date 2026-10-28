@@ -4,7 +4,7 @@
  * 只声明本插件实际调用的字段，不在运行时 import 任何 `@deepseek-ai/dsh-*`
  * 包；字段含义以 DSH 源码为准（`packages/core/tools`、`packages/skill/skill`、
  * `packages/subagent/subagent`、`packages/session/working-directory`、
- * `packages/credentials/credentials`）。
+ * `packages/credentials/credentials`、`packages/interaction/user-approval`）。
  *
  * @module dsh-guanxiang/host
  */
@@ -37,6 +37,8 @@ export interface Agent {
 export interface ToolRunContext {
   readonly signal: AbortSignal
   readonly agent?: Agent
+  /** Model-requested call id; approval answerers use it to show the call being decided. */
+  readonly callId?: string
 }
 
 /** Step-time activation input of a registered tool. */
@@ -197,6 +199,36 @@ export interface HostCredentials {
   describe(ref: string): Promise<HostCredentialInfo>
   set(ref: string, value: string): Promise<void>
   unset(ref: string): Promise<void>
+}
+
+/**
+ * Closed approval outcomes of `@deepseek-ai/dsh-user-approval`; only
+ * `allowed-once` grants the action.
+ */
+export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+
+/** One decision request; DSH requires an open turn of the agent's session. */
+export interface ApprovalRequest {
+  readonly agent: Agent
+  /** Tool the question is about. */
+  readonly toolName: string
+  /** The exact tool call being decided. */
+  readonly callId?: string
+  /** Audit-logged explanation of what will happen. */
+  readonly reason?: string
+  /** Localized presentation-only text; answerers prefer it over `reason`. */
+  readonly displayReason?: { readonly en: string; readonly [locale: string]: string }
+  /** Aborting withdraws the question (`cancelled`). */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * The optional `ctx.approval` slice. Answerers such as dsh_channels' Feishu
+ * decision cards or the DSH Web prompt claim the request; without an answerer
+ * the outcome is `unavailable`.
+ */
+export interface HostApproval {
+  request(req: ApprovalRequest): Promise<ApprovalOutcome>
 }
 
 /** Cordis logger slice. */

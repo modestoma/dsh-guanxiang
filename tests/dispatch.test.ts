@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
-import { readFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { resolveConfig, defaultsOf } from '../src/config.ts'
@@ -9,6 +9,7 @@ import type { Agent, SubagentActivation, SubagentResult, SubagentService } from 
 import { runGit } from '../src/repos/git.ts'
 import { RepoRegistry } from '../src/repos/registry.ts'
 import type { EditableSettings } from '../src/settings/contract.ts'
+import { SkillUpdater } from '../src/skill-update/tool.ts'
 import { createAppRepo, tempDir } from './helpers.ts'
 
 let server: Server
@@ -49,7 +50,7 @@ function fakeSubagents(): { service: SubagentService; started: Started[] } {
   return { service, started }
 }
 
-async function setup(overrides: Partial<EditableSettings> = {}) {
+async function setup(overrides: Partial<EditableSettings> = {}, proposals = false) {
   const { dir, cleanup } = await tempDir()
   cleanups.push(cleanup)
   const origin = await createAppRepo(join(dir, 'order-service'))
@@ -65,8 +66,10 @@ async function setup(overrides: Partial<EditableSettings> = {}) {
   registry.configure(settings.reposDir, settings.repos)
   await registry.syncAll()
   const { service, started } = fakeSubagents()
+  const updater = new SkillUpdater({ registry, settings: () => settings, git: runGit, gitTimeoutMs: 30_000, approval: () => undefined })
   const dispatcher = new Dispatcher({
     registry,
+    ...proposals ? { proposals: updater } : {},
     subagents: service,
     settings: () => settings,
     provider: 'spawn',
@@ -104,6 +107,7 @@ describe('guanxiang_dispatch', () => {
     expect(prompt).toContain(`- \`${log}\``)
     expect(prompt).toContain(`（下载自 http://127.0.0.1:${port}/bucket/app.tar.gz?sig=x）；只看本应用相关部分：tag=order`)
     expect(prompt).toContain(workDir)
+    expect(prompt).not.toContain('SKILL 改进')
     child?.settle({ stopReason: 'completed', output: [{ type: 'text', text: '根因：促销商品没有 SKU' }] })
     const value = await running
     expect(value.runId).toMatch(/^20261025-093000-[0-9a-f]{6}$/)
@@ -121,6 +125,28 @@ describe('guanxiang_dispatch', () => {
     expect(child?.dispose).toHaveBeenCalledTimes(1)
     expect(registry.status()[0]?.activeRuns).toBe(0)
     expect(renderDispatchValue(value)[0]?.text).toContain('### 订单服务（order-service）— 完成')
+  })
+
+  it('tells children how to propose SKILL changes and reports the proposals of completed tasks', async () => {
+    const { project, dispatcher, started, parent } = await setup({ skillUpdates: { enabled: true, maxFiles: 4, maxFileBytes: 65536 } }, true)
+    const path = join(project, 'sample-logs', 'order-service.log')
+    const running = dispatcher.execute({ tasks: [{ app: 'order-service', question: 'q', logs: [{ path }] }, { app: 'order-service', question: 'q2', logs: [{ path }] }] }, { signal: new AbortController().signal, agent: parent })
+    await waitForStarts(started, 2)
+    const prompt = started[0]?.spec.request.prompt[0]?.text as string
+    expect(prompt).toContain('## SKILL 改进（可选）')
+    const workDir = /`([^`]+)\/skill-proposal\/reason\.md`/.exec(prompt)?.[1] as string
+    expect(prompt).toContain(`复制到 \`${workDir}/skill-proposal/files/\``)
+    await mkdir(join(workDir, 'skill-proposal', 'files'), { recursive: true })
+    await writeFile(join(workDir, 'skill-proposal', 'reason.md'), '缺少 traceId 说明')
+    await writeFile(join(workDir, 'skill-proposal', 'files', 'SKILL.md'), '# 新版\n')
+    started[0]?.settle({ stopReason: 'completed', output: [{ type: 'text', text: '结论' }] })
+    started[1]?.settle({ stopReason: 'error', output: [] })
+    const value = await running
+    expect(value.results[0]?.skillProposal).toEqual({ ok: true, files: [{ path: '.dsh/skills/log-analysis/SKILL.md', added: 1, removed: expect.any(Number) }], diffPath: join(workDir, 'skill-proposal.diff') })
+    expect(value.results[1]?.skillProposal).toBeUndefined()
+    const text = renderDispatchValue(value)[0]?.text
+    expect(text).toContain('SKILL 修改提议：.dsh/skills/log-analysis/SKILL.md（+1 −')
+    expect(text).toContain(`提交时调用 guanxiang_propose_skill，workDir 为 ${workDir}。`)
   })
 
   it('rejects unknown apps, unreadable paths, disallowed URLs, and too many tasks before starting anything', async () => {

@@ -1,6 +1,6 @@
 /**
  * 观象运行时：持有生效设置（cordis.yml + 面板覆盖）、应用注册表、入口
- * SKILL 与派发工具的注册，并为设置面板提供状态与写入口。
+ * SKILL、派发工具与 SKILL 提议工具的注册，并为设置面板提供状态与写入口。
  *
  * @module dsh-guanxiang/service
  */
@@ -10,7 +10,7 @@ import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema, expand
 import type { GuanxiangConfig, SettingsOverlay } from './config.ts'
 import { abortable } from './abort.ts'
 import { Dispatcher, isDelegatedAgent, isInside } from './dispatch/tool.ts'
-import type { HostContext, HostCredentials, ToolActivationContext, WorkingDirectoryService } from './host.ts'
+import type { HostApproval, HostContext, HostCredentials, ToolActivationContext, WorkingDirectoryService } from './host.ts'
 import { credentialEnvironment, credentialFor, isAcceptedToken, MAX_TOKEN_LENGTH } from './repos/credentials.ts'
 import { runGit } from './repos/git.ts'
 import type { GitRunner } from './repos/git.ts'
@@ -19,6 +19,7 @@ import type { CredentialsWire, EditableSettings, StateWire, TokenStatusWire } fr
 import { diffOverlay, overriddenKeys } from './settings/overlay.ts'
 import type { OverlayStore } from './settings/overlay.ts'
 import { createEntrySkillProvider } from './skill/entry.ts'
+import { SkillUpdater } from './skill-update/tool.ts'
 
 /** A settings write the panel reports as a field error. */
 export class SettingsError extends Error {}
@@ -42,6 +43,7 @@ export class GuanxiangService {
   private overlayError: string | undefined
   private current: EditableSettings
   private readonly dispatcher: Dispatcher
+  private readonly updater: SkillUpdater
   private readonly skill: ReturnType<typeof createEntrySkillProvider>
   private active = true
   private readonly refreshWaitMs: number
@@ -62,14 +64,24 @@ export class GuanxiangService {
     this.defaults = defaultsOf(config)
     this.refreshWaitMs = config.refreshWaitMs
     this.current = this.defaults
+    const git = options.git ?? runGit
     this.registry = new RepoRegistry({
-      git: options.git ?? runGit,
+      git,
       gitTimeoutMs: config.gitTimeoutMs,
       auth: url => this.gitAuth(url),
       onChange: () => { this.onRegistryChange() },
     })
+    this.updater = new SkillUpdater({
+      registry: this.registry,
+      settings: () => this.current,
+      git,
+      gitTimeoutMs: config.gitTimeoutMs,
+      ...config.skillUpdateAuthor === undefined ? {} : { author: config.skillUpdateAuthor },
+      approval: () => ctx.get?.('approval') as HostApproval | undefined,
+    })
     this.dispatcher = new Dispatcher({
       registry: this.registry,
+      proposals: this.updater,
       subagents: ctx.subagents,
       settings: () => this.current,
       provider: config.subagentProvider,
@@ -80,6 +92,7 @@ export class GuanxiangService {
       prepare: signal => this.prepareCatalog(signal),
       apps: () => this.registry.readyApps().map(ready => ready.app),
       maxAppsPerRequest: () => this.current.maxAppsPerRequest,
+      skillUpdates: () => this.current.skillUpdates.enabled,
       autoInvoke: config.autoInvoke,
       inRepositories: cwd => isInside(cwd, expandHome(this.current.reposDir)),
     })
@@ -91,14 +104,18 @@ export class GuanxiangService {
   }
 
   /**
-   * Register the dispatch tool; called once from `apply()`. The definition
-   * stays fixed because a step drops a tool whose registration changed after
-   * the step resolved its tools.
+   * Register the dispatch and SKILL proposal tools; called once from
+   * `apply()`. The definitions stay fixed because a step drops a tool whose
+   * registration changed after the step resolved its tools.
    */
   registerTool(): void {
     this.ctx.effect(
       () => this.ctx.tools.register(this.dispatcher.definition(), { when: context => this.offersTool(context) }),
       'guanxiang: dispatch tool',
+    )
+    this.ctx.effect(
+      () => this.ctx.tools.register(this.updater.definition(), { when: async context => this.current.skillUpdates.enabled && await this.offersTool(context) }),
+      'guanxiang: skill proposal tool',
     )
   }
 

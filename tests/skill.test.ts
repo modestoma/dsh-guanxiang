@@ -9,15 +9,17 @@ describe('entry skill', () => {
   it('lists usable applications in the catalog', () => {
     expect(renderCatalog([order])).toContain('| `order-service` | 订单服务 | 下单 \\| 支付 | 订单 | `OrderController` |')
     expect(renderCatalog([])).toContain('当前没有可用的应用')
-    const body = renderEntrySkill([order], 3)
+    const body = renderEntrySkill([order], 3, false)
     expect(body).toContain('`guanxiang_dispatch`')
     expect(body).toContain('最多 3 个')
+    expect(body).not.toContain('guanxiang_propose_skill')
+    expect(renderEntrySkill([order], 3, true)).toContain('然后调用 `guanxiang_propose_skill`')
   })
 
   it('is user-invocable only and renders the live catalog on each load', async () => {
     let apps: AppManifest[] = []
     const ready = Promise.withResolvers<void>()
-    const { factory, invalidate } = createEntrySkillProvider({ prepare: signal => abortable(ready.promise, signal), apps: () => apps, maxAppsPerRequest: () => 4, autoInvoke: false, inRepositories: () => false })
+    const { factory, invalidate } = createEntrySkillProvider({ prepare: signal => abortable(ready.promise, signal), apps: () => apps, maxAppsPerRequest: () => 4, skillUpdates: () => false, autoInvoke: false, inRepositories: () => false })
     const control = { signal: new AbortController().signal, invalidate: vi.fn() }
     const provider = factory(control)
     const [candidate] = await provider.list({})
@@ -43,6 +45,7 @@ describe('entry skill', () => {
       prepare: () => Promise.resolve(),
       apps: () => apps,
       maxAppsPerRequest: () => 4,
+      skillUpdates: () => false,
       autoInvoke: true,
       inRepositories: cwd => cwd.startsWith('/repos'),
     })

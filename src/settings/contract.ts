@@ -42,6 +42,16 @@ export interface DownloadSettings {
   timeoutMs: number
 }
 
+/** Application SKILL improvement proposals that children may write and the top-level agent may submit as merge requests. */
+export interface SkillUpdateSettings {
+  /** Whether children are told how to propose SKILL changes and top-level agents are offered `guanxiang_propose_skill`. */
+  enabled: boolean
+  /** Most files one proposal may add or change. */
+  maxFiles: number
+  /** Largest proposed file, in bytes. */
+  maxFileBytes: number
+}
+
 /** The settings the Web panel can override; every field is required on the wire. */
 export interface EditableSettings {
   /** Absolute directory holding the cloned repositories (`~` expands to the home directory). */
@@ -58,10 +68,12 @@ export interface EditableSettings {
   dispatchTimeoutMs: number
   /** URL download policy. */
   download: DownloadSettings
+  /** SKILL improvement proposals. */
+  skillUpdates: SkillUpdateSettings
 }
 
 /** Keys of {@link EditableSettings}, in panel order. */
-export const EDITABLE_KEYS = ['reposDir', 'repos', 'gitCredentials', 'fetchIntervalMs', 'maxAppsPerRequest', 'dispatchTimeoutMs', 'download'] as const satisfies readonly (keyof EditableSettings)[]
+export const EDITABLE_KEYS = ['reposDir', 'repos', 'gitCredentials', 'fetchIntervalMs', 'maxAppsPerRequest', 'dispatchTimeoutMs', 'download', 'skillUpdates'] as const satisfies readonly (keyof EditableSettings)[]
 
 /** One editable key. */
 export type EditableKey = (typeof EDITABLE_KEYS)[number]

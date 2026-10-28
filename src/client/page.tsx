@@ -1,5 +1,5 @@
 /**
- * 左侧栏「观象」主区页面：应用仓库、访问令牌、日志下载、高级四个分页，共用
+ * 左侧栏「观象」主区页面：应用仓库、访问令牌、日志下载、高级（含 SKILL 改进）四个分页，共用
  * 一份草稿和底部保存条；令牌值不进草稿，单独存入 DSH 凭据库。仓库拉取中时
  * 每 2 秒刷新状态。
  *
@@ -13,6 +13,7 @@ import { clearToken, fetchState, messageOf, resetSettings, saveSettings, saveTok
 /** Sidebar label and page title. */
 export const PANEL_TITLE = '观象'
 
+const KB = 1024
 const MB = 1024 * 1024
 const MINUTE = 60 * 1000
 
@@ -36,6 +37,9 @@ interface Draft {
   allowedHosts: string[]
   maxMb: string
   timeoutSec: string
+  skillUpdatesEnabled: boolean
+  skillMaxFiles: string
+  skillMaxKb: string
 }
 
 function trimNumber(value: number): string {
@@ -53,6 +57,9 @@ function toDraft(settings: EditableSettings): Draft {
     allowedHosts: [...settings.download.allowedHosts],
     maxMb: trimNumber(settings.download.maxBytes / MB),
     timeoutSec: trimNumber(settings.download.timeoutMs / 1000),
+    skillUpdatesEnabled: settings.skillUpdates.enabled,
+    skillMaxFiles: String(settings.skillUpdates.maxFiles),
+    skillMaxKb: trimNumber(settings.skillUpdates.maxFileBytes / KB),
   }
 }
 
@@ -65,6 +72,8 @@ function positive(text: string, label: string, allowZero = false): number {
 function fromDraft(draft: Draft): EditableSettings {
   const maxApps = positive(draft.maxAppsPerRequest, '单次应用数上限')
   if (!Number.isInteger(maxApps)) throw new Error('单次应用数上限必须是整数')
+  const maxFiles = positive(draft.skillMaxFiles, '提议文件数上限')
+  if (!Number.isInteger(maxFiles)) throw new Error('提议文件数上限必须是整数')
   return {
     reposDir: draft.reposDir.trim(),
     repos: draft.repos.map(repo => repo.branch === undefined || repo.branch.trim() === '' ? { url: repo.url.trim() } : { url: repo.url.trim(), branch: repo.branch.trim() }),
@@ -76,6 +85,11 @@ function fromDraft(draft: Draft): EditableSettings {
       allowedHosts: draft.allowedHosts.map(host => host.trim()).filter(host => host !== ''),
       maxBytes: Math.round(positive(draft.maxMb, '单文件大小上限') * MB),
       timeoutMs: Math.round(positive(draft.timeoutSec, '下载超时') * 1000),
+    },
+    skillUpdates: {
+      enabled: draft.skillUpdatesEnabled,
+      maxFiles,
+      maxFileBytes: Math.round(positive(draft.skillMaxKb, '提议单文件大小上限') * KB),
     },
   }
 }
@@ -442,6 +456,20 @@ function AdvancedTab({ draft, setDraft, overridden, busy, onReset }: TabProps & 
         <div className="gx__list">
           <NumberRow label="单次应用数上限" summary="一次派发最多同时分析的应用数，不应超过 DSH 的活动子 Agent 上限（默认 8）。" unit="个" value={draft.maxAppsPerRequest} overridden={overridden.includes('maxAppsPerRequest')} onChange={(value) => { setDraft({ ...draft, maxAppsPerRequest: value }) }} />
           <NumberRow label="派发超时" summary="等待全部子 Agent 的最长时间，超时后停止仍在运行的子 Agent。" unit="分钟" value={draft.dispatchTimeoutMin} overridden={overridden.includes('dispatchTimeoutMs')} onChange={(value) => { setDraft({ ...draft, dispatchTimeoutMin: value }) }} />
+        </div>
+      </section>
+      <section className="gx__sec">
+        <h2 className="gx__secTitle">SKILL 改进</h2>
+        <div className="gx__list">
+          <div className="gx__row">
+            <div className="gx__rowText">
+              <div className="gx__rowLabel">允许提出 SKILL 修改 <Overridden keys={overridden} name="skillUpdates" /></div>
+              <div className="gx__rowSummary">子 Agent 发现应用的日志分析 SKILL 有欠缺时可以写出修改提议；经用户授权后，观象用访问令牌把它推送到新分支并创建合并请求（GitLab，令牌需要 write_repository 权限）。</div>
+            </div>
+            <div className="gx__rowCtl"><input type="checkbox" className="gx__check" aria-label="允许提出 SKILL 修改" checked={draft.skillUpdatesEnabled} onChange={(event) => { setDraft({ ...draft, skillUpdatesEnabled: event.target.checked }) }} /></div>
+          </div>
+          <NumberRow label="提议文件数上限" unit="个" value={draft.skillMaxFiles} onChange={(value) => { setDraft({ ...draft, skillMaxFiles: value }) }} />
+          <NumberRow label="提议单文件大小上限" unit="KB" value={draft.skillMaxKb} onChange={(value) => { setDraft({ ...draft, skillMaxKb: value }) }} />
         </div>
       </section>
       <section className="gx__sec">

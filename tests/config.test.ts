@@ -30,6 +30,14 @@ describe('configuration', () => {
     const config = resolveConfig(undefined)
     expect(config).toMatchObject({ repos: [], fetchIntervalMs: 0, maxAppsPerRequest: 4, subagentProvider: 'spawn', refreshWaitMs: 15000 })
     expect(defaultsOf(config, { DSH_HOME: '/home/u/.dsh' }).reposDir).toBe('/home/u/.dsh/guanxiang/repos')
+    expect(defaultsOf(config).skillUpdates).toEqual({ enabled: false, maxFiles: 16, maxFileBytes: 262144 })
+    expect(config.skillUpdateAuthor).toBeUndefined()
+  })
+
+  it('validates the SKILL proposal author', () => {
+    expect(resolveConfig({ skillUpdateAuthor: { name: ' 观象 ', email: 'gx@example.com' } }).skillUpdateAuthor).toEqual({ name: '观象', email: 'gx@example.com' })
+    expect(() => resolveConfig({ skillUpdateAuthor: { name: 'a <b>', email: 'gx@example.com' } })).toThrow(/作者名/)
+    expect(() => resolveConfig({ skillUpdateAuthor: { name: 'a', email: 'g x' } })).toThrow(/作者邮箱/)
   })
 
   it('normalizes allowed hosts and rejects schemes', () => {

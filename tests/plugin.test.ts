@@ -90,15 +90,33 @@ describe('plugin', () => {
     cleanups.push(h.dispose)
     apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: origin }] }, { overlayPath: join(dir, 'settings.json') })
     expect(h.skills.map(skill => skill.name)).toEqual(['dsh-guanxiang'])
-    expect(h.tools.map(tool => tool.definition.name)).toEqual(['guanxiang_dispatch'])
-    const [tool] = h.tools
+    expect(h.tools.map(tool => tool.definition.name)).toEqual(['guanxiang_dispatch', 'guanxiang_propose_skill'])
+    const [tool, propose] = h.tools
     const signal = new AbortController().signal
     const step = (depth?: number) => ({ agent: { id: 'a', session: { header: { id: 'a', ...depth === undefined ? {} : { delegationDepth: depth } } } }, signal })
     // The condition waits for the first sync, so a step prepared during startup still sees the cloned application.
     expect(await tool!.when?.(step())).toBe(true)
     expect(await tool!.when?.(step(1))).toBe(false)
+    // SKILL proposals are off by default.
+    expect(await propose!.when?.(step())).toBe(false)
     const [candidate] = await h.skills[0]!.list({})
     expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`order-service`')
+  })
+
+  it('offers the SKILL proposal tool to top-level agents once proposals are enabled and mentions it in /guanxiang', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const origin = await createAppRepo(join(dir, 'order-service'))
+    const h = await harness()
+    cleanups.push(h.dispose)
+    apply(h.ctx, { reposDir: join(dir, 'repos'), repos: [{ url: origin }], skillUpdates: { enabled: true } }, { overlayPath: join(dir, 'settings.json') })
+    const propose = h.tools.find(tool => tool.definition.name === 'guanxiang_propose_skill')
+    const signal = new AbortController().signal
+    const step = (depth?: number) => ({ agent: { id: 'a', session: { header: { id: 'a', ...depth === undefined ? {} : { delegationDepth: depth } } } }, signal })
+    expect(await propose!.when?.(step())).toBe(true)
+    expect(await propose!.when?.(step(1))).toBe(false)
+    const [candidate] = await h.skills[0]!.list({})
+    expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`guanxiang_propose_skill`')
   })
 
   it('refreshes repositories before rendering /guanxiang, waiting at most refreshWaitMs', async () => {
