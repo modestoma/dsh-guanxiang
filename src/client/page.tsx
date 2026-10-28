@@ -1,13 +1,13 @@
 /**
- * 左侧栏「观象」主区页面：应用仓库、访问令牌、日志下载、高级（含 SKILL 改进）四个分页，共用
- * 一份草稿和底部保存条；令牌值不进草稿，单独存入 DSH 凭据库。仓库拉取中时
- * 每 2 秒刷新状态。
+ * 左侧栏「观象」主区页面：应用仓库、访问令牌、日志下载、分析接口、高级（含 SKILL 改进）五个
+ * 分页，共用一份草稿和底部保存条；令牌值不进草稿，单独存入 DSH 凭据库。
+ * 仓库拉取中时每 2 秒刷新状态。
  *
  * @module dsh-guanxiang/client/page
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { EditableKey, EditableSettings, GitCredentialSpec, RepoSpec, RepoStatusWire, StateWire, TokenStatusWire } from '../settings/contract.ts'
+import type { AnalyzeWire, EditableKey, EditableSettings, GitCredentialSpec, RepoSpec, RepoStatusWire, StateWire, TokenStatusWire } from '../settings/contract.ts'
 import { clearToken, fetchState, messageOf, resetSettings, saveSettings, saveToken, syncRepos } from './api.ts'
 
 /** Sidebar label and page title. */
@@ -17,12 +17,13 @@ const KB = 1024
 const MB = 1024 * 1024
 const MINUTE = 60 * 1000
 
-type TabId = 'repos' | 'tokens' | 'download' | 'advanced'
+type TabId = 'repos' | 'tokens' | 'download' | 'analyze' | 'advanced'
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'repos', label: '应用仓库' },
   { id: 'tokens', label: '访问令牌' },
   { id: 'download', label: '日志下载' },
+  { id: 'analyze', label: '分析接口' },
   { id: 'advanced', label: '高级' },
 ]
 
@@ -40,6 +41,7 @@ interface Draft {
   skillUpdatesEnabled: boolean
   skillMaxFiles: string
   skillMaxKb: string
+  analyzeEnabled: boolean
 }
 
 function trimNumber(value: number): string {
@@ -60,6 +62,7 @@ function toDraft(settings: EditableSettings): Draft {
     skillUpdatesEnabled: settings.skillUpdates.enabled,
     skillMaxFiles: String(settings.skillUpdates.maxFiles),
     skillMaxKb: trimNumber(settings.skillUpdates.maxFileBytes / KB),
+    analyzeEnabled: settings.analyze.enabled,
   }
 }
 
@@ -96,6 +99,7 @@ function fromDraft(draft: Draft): EditableSettings {
       maxFiles,
       maxFileBytes: Math.round(positive(draft.skillMaxKb, '提议单文件大小上限') * KB),
     },
+    analyze: { enabled: draft.analyzeEnabled },
   }
 }
 
@@ -254,6 +258,18 @@ export function GuanxiangPanel(): JSX.Element {
             />
           : null}
         {tab === 'download' ? <DownloadTab draft={draft} setDraft={setDraft} overridden={state.overridden} /> : null}
+        {tab === 'analyze'
+          ? <AnalyzeTab
+              draft={draft}
+              setDraft={setDraft}
+              analyze={state.analyze}
+              credentialsAvailable={state.credentials.available}
+              overridden={state.overridden}
+              busy={busy}
+              onSave={async value => await run(() => saveToken(state.analyze.tokenEnv, value), '已保存分析接口令牌，下一个请求起生效', false) !== undefined}
+              onClear={() => { void run(() => clearToken(state.analyze.tokenEnv), '已清除面板保存的分析接口令牌', false) }}
+            />
+          : null}
         {tab === 'advanced' ? <AdvancedTab draft={draft} setDraft={setDraft} overridden={state.overridden} busy={busy} onReset={() => { void run(resetSettings, '已恢复为 cordis.yml 中的配置', true) }} /> : null}
       </div>
       {notice === undefined ? null : <div className={`gx__notice gx__notice--${notice.kind}`}>{notice.text}</div>}
@@ -476,6 +492,74 @@ function DownloadTab({ draft, setDraft, overridden }: TabProps & { overridden: r
         <div className="gx__list">
           <NumberRow label="单文件大小上限" unit="MB" value={draft.maxMb} onChange={(value) => { setDraft({ ...draft, maxMb: value }) }} />
           <NumberRow label="单文件下载超时" unit="秒" value={draft.timeoutSec} onChange={(value) => { setDraft({ ...draft, timeoutSec: value }) }} />
+        </div>
+      </section>
+    </>
+  )
+}
+
+const TOPICS_STATUS: Readonly<Record<AnalyzeWire['topics'], { pill: string; text: string }>> = {
+  ready: { pill: 'gx__pill--ok', text: '飞书渠道就绪' },
+  missing: { pill: 'gx__pill--bad', text: '未找到飞书渠道' },
+  incompatible: { pill: 'gx__pill--bad', text: '飞书渠道版本不兼容' },
+}
+
+function AnalyzeTab({ draft, setDraft, analyze, credentialsAvailable, overridden, busy, onSave, onClear }: TabProps & {
+  analyze: AnalyzeWire
+  credentialsAvailable: boolean
+  overridden: readonly EditableKey[]
+  busy: boolean
+  onSave: (value: string) => Promise<boolean>
+  onClear: () => void
+}): JSX.Element {
+  const [value, setValue] = useState('')
+  const token = analyze.token
+  const save = (): void => {
+    const trimmed = value.trim()
+    if (trimmed === '' || busy) return
+    void onSave(trimmed).then((ok) => { if (ok) setValue('') })
+  }
+  const topics = TOPICS_STATUS[analyze.topics]
+  const endpoint = new URL(analyze.route.slice(1), document.baseURI).href
+  return (
+    <>
+      <section className="gx__sec">
+        <h2 className="gx__secTitle">日志平台分析接口</h2>
+        <div className="gx__list">
+          <div className="gx__row">
+            <div className="gx__rowText">
+              <div className="gx__rowLabel">开启接口 <Overridden keys={overridden} name="analyze" /><span className={`gx__pill ${topics.pill}`}><span className="gx__dot" />{topics.text}</span></div>
+              <div className="gx__rowSummary">日志平台调用接口后，观象经飞书渠道（dsh-channels 0.8 及以上）在目标群发出分析卡片，并在卡片下的话题里开始分析；群内成员都可以在话题里继续追问。关闭时接口回复 404。</div>
+              {analyze.topics === 'ready' ? null : <div className="gx__rowError">{analyze.topics === 'missing' ? '接口需要 dsh-channels 0.8 及以上版本并已加载；dsh-channels 0.7 自带同名接口，升级前由它提供。' : '请把观象与 dsh-channels 升级到相互兼容的版本。'}</div>}
+            </div>
+            <div className="gx__rowCtl"><input type="checkbox" className="gx__check" aria-label="开启分析接口" checked={draft.analyzeEnabled} onChange={(event) => { setDraft({ ...draft, analyzeEnabled: event.target.checked }) }} /></div>
+          </div>
+          <div className="gx__row gx__row--top">
+            <div className="gx__rowText">
+              <div className="gx__rowLabel">访问令牌 <span className="gx__tag gx__mono">{analyze.tokenEnv}</span>{credentialsAvailable ? tokenPill(token) : null}</div>
+              <div className="gx__rowSummary">日志平台以 <span className="gx__mono">Authorization: Bearer &lt;令牌&gt;</span> 调用接口。令牌未设置时接口回复 503。</div>
+              {credentialsAvailable ? null : <div className="gx__rowError">当前 DSH 组合没有加载凭据服务（@deepseek-ai/dsh-credentials-local），无法保存或读取令牌。</div>}
+              {token?.error === undefined ? null : <div className="gx__rowError">{token.error}</div>}
+              {token !== undefined && token.writable
+                ? (
+                    <div className="gx__addRow gx__addRow--flush">
+                      <input className="gx__input gx__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder={token.configured ? '输入新令牌以替换' : '粘贴令牌'} value={value} onChange={(event) => { setValue(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') save() }} />
+                      <button type="button" className="gx__btn" disabled={busy || value.trim() === ''} onClick={save}>保存令牌</button>
+                      {token.configured && token.source === 'file' ? <button type="button" className="gx__btn gx__btn--ghost" disabled={busy} onClick={onClear}>清除</button> : null}
+                    </div>
+                  )
+                : null}
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="gx__sec">
+        <h2 className="gx__secTitle">调用方式</h2>
+        <div className="gx__list">
+          <div className="gx__row"><div className="gx__rowText"><div className="gx__rowLabel">地址</div><div className="gx__rowSummary gx__mono">POST {endpoint}</div></div></div>
+          <div className="gx__row"><div className="gx__rowText"><div className="gx__rowLabel">请求头</div><div className="gx__rowSummary gx__mono">Authorization: Bearer &lt;令牌&gt; · Idempotency-Key: &lt;1-200 个可见 ASCII 字符&gt; · Content-Type: application/json</div></div></div>
+          <div className="gx__row"><div className="gx__rowText"><div className="gx__rowLabel">请求体</div><div className="gx__rowSummary gx__mono">requesterUserId, triggeredAt, app, errorCode, logDetails[{'{'}name, url{'}'}], chatId, prompt</div></div></div>
+          <div className="gx__row"><div className="gx__rowText"><div className="gx__rowLabel">响应</div><div className="gx__rowSummary">202 已发出分析卡片（同一 Idempotency-Key 重试返回同一张卡片）；400/401/404/405/409/413/415 请求问题；403 目标群未授权；502 卡片发送失败；503 飞书未连接或令牌未设置。字段说明见观象 README。</div></div></div>
         </div>
       </section>
     </>

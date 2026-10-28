@@ -9,13 +9,16 @@ import { z } from 'zod'
 import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema, expandHome } from './config.ts'
 import type { GuanxiangConfig, SettingsOverlay } from './config.ts'
 import { abortable } from './abort.ts'
+import type { AnalyzeGate } from './analyze/server.ts'
+import { FEISHU_TOPICS_SERVICE, lookupTopics } from './analyze/topics.ts'
 import { Dispatcher, isDelegatedAgent, isInside } from './dispatch/tool.ts'
 import type { HostApproval, HostContext, HostCredentials, ToolActivationContext, WorkingDirectoryService } from './host.ts'
 import { credentialEnvironment, credentialFor, isAcceptedToken, MAX_TOKEN_LENGTH } from './repos/credentials.ts'
 import { runGit } from './repos/git.ts'
 import type { GitRunner } from './repos/git.ts'
 import { RepoRegistry } from './repos/registry.ts'
-import type { CredentialsWire, EditableSettings, StateWire, TokenStatusWire } from './settings/contract.ts'
+import { ANALYZE_ROUTE } from './settings/contract.ts'
+import type { AnalyzeWire, CredentialsWire, EditableSettings, StateWire, TokenStatusWire } from './settings/contract.ts'
 import { diffOverlay, overriddenKeys } from './settings/overlay.ts'
 import type { OverlayStore } from './settings/overlay.ts'
 import { createEntrySkillProvider } from './skill/entry.ts'
@@ -47,6 +50,7 @@ export class GuanxiangService {
   private readonly skill: ReturnType<typeof createEntrySkillProvider>
   private active = true
   private readonly refreshWaitMs: number
+  private readonly analyzeTokenRef: string
   private readonly booted = Promise.withResolvers<void>()
 
   /**
@@ -63,6 +67,7 @@ export class GuanxiangService {
   ) {
     this.defaults = defaultsOf(config)
     this.refreshWaitMs = config.refreshWaitMs
+    this.analyzeTokenRef = config.analyzeTokenRef
     this.current = this.defaults
     const git = options.git ?? runGit
     this.registry = new RepoRegistry({
@@ -195,6 +200,33 @@ export class GuanxiangService {
       ...this.overlayError === undefined ? {} : { overlayError: this.overlayError },
       repos: this.registry.status(),
       credentials: await this.credentialsState(),
+      analyze: await this.analyzeState(),
+    }
+  }
+
+  /** @returns the analyze route's switch and bearer token, read per request. */
+  analyzeGate(): AnalyzeGate {
+    return {
+      enabled: () => this.current.analyze.enabled,
+      tokenEnv: () => this.analyzeTokenRef,
+      token: async () => {
+        try {
+          return (await this.credentialStore()?.resolve(this.analyzeTokenRef))?.value
+        } catch (error) {
+          this.ctx.logger?.warn?.('guanxiang: 读取分析接口令牌 %s 失败：%s', this.analyzeTokenRef, error instanceof Error ? error.message : String(error))
+          return undefined
+        }
+      },
+    }
+  }
+
+  private async analyzeState(): Promise<AnalyzeWire> {
+    const store = this.credentialStore()
+    return {
+      route: ANALYZE_ROUTE,
+      tokenEnv: this.analyzeTokenRef,
+      ...store === undefined ? {} : { token: await describeToken(store, this.analyzeTokenRef) },
+      topics: lookupTopics(this.ctx.get?.(FEISHU_TOPICS_SERVICE)).availability,
     }
   }
 
@@ -206,14 +238,7 @@ export class GuanxiangService {
     const store = this.credentialStore()
     if (store === undefined) return { available: false, tokens: [] }
     const names = [...new Set(this.current.gitCredentials.map(credential => credential.tokenEnv))]
-    const tokens = await Promise.all(names.map(async (tokenEnv): Promise<TokenStatusWire> => {
-      try {
-        const info = await store.describe(tokenEnv)
-        return { tokenEnv, configured: info.configured, ...info.source === undefined ? {} : { source: info.source }, writable: info.writable }
-      } catch (error) {
-        return { tokenEnv, configured: false, writable: false, error: error instanceof Error ? error.message : String(error) }
-      }
-    }))
+    const tokens = await Promise.all(names.map(tokenEnv => describeToken(store, tokenEnv)))
     return { available: true, tokens }
   }
 
@@ -237,10 +262,11 @@ export class GuanxiangService {
 
   /**
    * Store the token of one access-token configuration in DSH's credential
-   * store, then re-sync the repositories that use it.
+   * store, then re-sync the repositories that use it; or store the analyze
+   * API's bearer token (`analyzeTokenRef`), which applies from the next request.
    * @param raw - request body `{ tokenEnv, value }`.
    * @returns the new panel state.
-   * @throws SettingsError when the body is invalid, the name is not referenced by the saved settings, or no credential store is loaded.
+   * @throws SettingsError when the body is invalid, the name is neither referenced by the saved settings nor `analyzeTokenRef`, or no credential store is loaded.
    */
   async setToken(raw: unknown): Promise<StateWire> {
     const parsed = tokenSetSchema.safeParse(raw)
@@ -262,7 +288,7 @@ export class GuanxiangService {
   }
 
   private async writeToken(tokenEnv: string, value: string | undefined): Promise<StateWire> {
-    if (!this.current.gitCredentials.some(credential => credential.tokenEnv === tokenEnv)) throw new SettingsError(`${tokenEnv} 不是已保存的访问令牌配置引用的名称`)
+    if (tokenEnv !== this.analyzeTokenRef && !this.current.gitCredentials.some(credential => credential.tokenEnv === tokenEnv)) throw new SettingsError(`${tokenEnv} 不是已保存的访问令牌配置引用的名称`)
     const store = this.credentialStore()
     if (store === undefined) throw new SettingsError('当前 DSH 组合没有凭据服务（@deepseek-ai/dsh-credentials-local），无法保存令牌')
     if (value === undefined) await store.unset(tokenEnv)
@@ -327,5 +353,14 @@ export class GuanxiangService {
   private onRegistryChange(): void {
     if (!this.active) return
     this.skill.invalidate()
+  }
+}
+
+async function describeToken(store: HostCredentials, tokenEnv: string): Promise<TokenStatusWire> {
+  try {
+    const info = await store.describe(tokenEnv)
+    return { tokenEnv, configured: info.configured, ...info.source === undefined ? {} : { source: info.source }, writable: info.writable }
+  } catch (error) {
+    return { tokenEnv, configured: false, writable: false, error: error instanceof Error ? error.message : String(error) }
   }
 }

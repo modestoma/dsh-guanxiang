@@ -11,8 +11,14 @@ export const STATE_ROUTE = '/guanxiang/state'
 export const SETTINGS_ROUTE = '/guanxiang/settings'
 /** POST：立即重新拉取全部仓库，或 body `{ url }` 指定的一个仓库。 */
 export const SYNC_ROUTE = '/guanxiang/sync'
-/** PUT：body `{ tokenEnv, value }` 把令牌存入 DSH 凭据库；DELETE：body `{ tokenEnv }` 删除已存的值。只接受已保存的访问令牌配置引用的名称。 */
+/** PUT：body `{ tokenEnv, value }` 把令牌存入 DSH 凭据库；DELETE：body `{ tokenEnv }` 删除已存的值。只接受已保存的访问令牌配置引用的名称和分析接口令牌的名称。 */
 export const TOKEN_ROUTE = '/guanxiang/token'
+
+/**
+ * POST：日志平台分析接口（Bearer 令牌鉴权，不走 DSH 登录）。它在 DSH 的
+ * `/api` 命名空间之外，网关可以把它和需要登录的 DSH 接口分开暴露。
+ */
+export const ANALYZE_ROUTE = '/open-api/logalyze'
 
 /** One configured application repository. */
 export interface RepoSpec {
@@ -57,6 +63,12 @@ export interface SkillUpdateSettings {
   maxFileBytes: number
 }
 
+/** The log-platform analyze API ({@link ANALYZE_ROUTE}). */
+export interface AnalyzeSettings {
+  /** Whether the API accepts requests; switched off it answers 404. */
+  enabled: boolean
+}
+
 /** The settings the Web panel can override; every field is required on the wire. */
 export interface EditableSettings {
   /** Absolute directory holding the cloned repositories (`~` expands to the home directory). */
@@ -75,10 +87,12 @@ export interface EditableSettings {
   download: DownloadSettings
   /** SKILL improvement proposals. */
   skillUpdates: SkillUpdateSettings
+  /** Log-platform analyze API. */
+  analyze: AnalyzeSettings
 }
 
 /** Keys of {@link EditableSettings}, in panel order. */
-export const EDITABLE_KEYS = ['reposDir', 'repos', 'gitCredentials', 'fetchIntervalMs', 'maxAppsPerRequest', 'dispatchTimeoutMs', 'download', 'skillUpdates'] as const satisfies readonly (keyof EditableSettings)[]
+export const EDITABLE_KEYS = ['reposDir', 'repos', 'gitCredentials', 'fetchIntervalMs', 'maxAppsPerRequest', 'dispatchTimeoutMs', 'download', 'skillUpdates', 'analyze'] as const satisfies readonly (keyof EditableSettings)[]
 
 /** One editable key. */
 export type EditableKey = (typeof EDITABLE_KEYS)[number]
@@ -146,6 +160,25 @@ export interface CredentialsWire {
   tokens: TokenStatusWire[]
 }
 
+/**
+ * Whether dsh-channels provides the `feishuTopics` service the analyze API
+ * posts through: `missing` while it is not loaded (or older than 0.8, which
+ * serves the API itself), `incompatible` when its contract version is not
+ * the one this plugin speaks.
+ */
+export type TopicsAvailability = 'ready' | 'missing' | 'incompatible'
+
+/** Analyze API view of the panel. */
+export interface AnalyzeWire {
+  /** Route the log platform posts to. */
+  route: string
+  /** Credential reference (`analyzeTokenRef`) holding the bearer token. */
+  tokenEnv: string
+  /** Token status; absent while the DSH composition has no credential store. */
+  token?: TokenStatusWire
+  topics: TopicsAvailability
+}
+
 /** `GET /guanxiang/state` response. */
 export interface StateWire {
   /** Effective settings: cordis.yml values with panel overrides applied. */
@@ -158,6 +191,7 @@ export interface StateWire {
   overlayError?: string
   repos: RepoStatusWire[]
   credentials: CredentialsWire
+  analyze: AnalyzeWire
 }
 
 /** Successful mutation response. */

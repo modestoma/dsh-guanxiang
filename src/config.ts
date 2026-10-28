@@ -86,6 +86,10 @@ const skillUpdatesSchema = z.object({
   maxFileBytes: z.number().int().min(1).max(16 * 1024 * 1024).default(256 * 1024),
 }).strict()
 
+const analyzeSchema = z.object({
+  enabled: z.boolean().default(false),
+}).strict()
+
 const authorSchema = z.object({
   name: z.string().trim().min(1, '提交作者名不能为空').refine(value => !/[<>\n]/.test(value), '提交作者名不能包含 < > 或换行'),
   email: z.string().trim().min(1, '提交作者邮箱不能为空').refine(value => !/[<>\s]/.test(value), '提交作者邮箱不能包含 < > 或空白'),
@@ -113,6 +117,7 @@ export const editableFields = {
   dispatchTimeoutMs: durationMs(1000),
   download: downloadSchema,
   skillUpdates: skillUpdatesSchema,
+  analyze: analyzeSchema,
 }
 
 const configSchema = z.object({
@@ -125,6 +130,12 @@ const configSchema = z.object({
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.default(30 * 60 * 1000),
   download: downloadSchema.prefault({}),
   skillUpdates: skillUpdatesSchema.prefault({}),
+  analyze: analyzeSchema.prefault({}),
+  /**
+   * Credential reference (environment-variable name) whose value is the
+   * analyze API's bearer token.
+   */
+  analyzeTokenRef: z.string().trim().regex(TOKEN_ENV_PATTERN, '令牌名称只能包含字母、数字和下划线，且不能以数字开头').default('GUANXIANG_ANALYZE_TOKEN'),
   /**
    * Author and committer of SKILL improvement commits; omitted uses the git
    * identity configured on the host (`user.name` / `user.email`).
@@ -163,6 +174,7 @@ export const overlaySchema = z.object({
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.optional(),
   download: downloadSchema.optional(),
   skillUpdates: skillUpdatesSchema.optional(),
+  analyze: analyzeSchema.optional(),
 }).strict()
 
 /** Validated panel overlay. */
@@ -247,6 +259,7 @@ export function defaultsOf(config: GuanxiangConfig, env: NodeJS.ProcessEnv = pro
     dispatchTimeoutMs: config.dispatchTimeoutMs,
     download: { ...config.download, allowedHosts: [...config.download.allowedHosts] },
     skillUpdates: { ...config.skillUpdates },
+    analyze: { ...config.analyze },
   }
 }
 
@@ -267,5 +280,6 @@ export function applyOverlay(defaults: EditableSettings, overlay: SettingsOverla
     dispatchTimeoutMs: overlay.dispatchTimeoutMs ?? defaults.dispatchTimeoutMs,
     download: overlay.download ?? defaults.download,
     skillUpdates: overlay.skillUpdates ?? defaults.skillUpdates,
+    analyze: overlay.analyze ?? defaults.analyze,
   }
 }
