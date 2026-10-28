@@ -31,6 +31,12 @@ export interface RepoRegistryDeps {
   readonly git: GitRunner
   /** Timeout of one git command. */
   readonly gitTimeoutMs: number
+  /**
+   * Environment for the network commands (clone, fetch, remote HEAD lookup) of
+   * one address, such as an access token; resolved again on every sync. A
+   * rejection fails that sync with its message.
+   */
+  readonly auth?: (url: string) => Promise<Readonly<Record<string, string>>>
   /** Called after any status change (sync start/end, configuration, leases). */
   readonly onChange: () => void
   readonly now?: () => number
@@ -220,6 +226,22 @@ export class RepoRegistry {
   }
 
   /**
+   * Sync the configured repositories with the given addresses again after any
+   * sync already running for them, so the new sync sees settings changed since
+   * that sync started (an access token, for example). An idle repository
+   * starts syncing before this returns, so its status reads `syncing` at once.
+   * @param urls - addresses to sync.
+   * @returns when those syncs settled.
+   */
+  async resyncUrls(urls: readonly string[]): Promise<void> {
+    const wanted = new Set(urls)
+    await Promise.all(this.entries.filter(entry => wanted.has(entry.spec.url)).map(entry => entry.syncing === undefined
+      ? this.syncEntry(entry)
+      // The running sync's outcome is superseded by the one started after it.
+      : entry.syncing.then(() => undefined, () => undefined).then(() => this.syncEntry(entry))))
+  }
+
+  /**
    * Sync the repositories that never synced or whose last sync is at least
    * `maxAgeMs` old, and join syncs already running.
    * @param maxAgeMs - age threshold; 0 syncs every repository.
@@ -397,12 +419,13 @@ export class RepoRegistry {
       this.clearedRoots.add(root)
       await rm(root, { recursive: true, force: true })
     }
+    const env = await this.deps.auth?.(spec.url) ?? {}
     const kind = await pathKind(dir)
     if (kind === 'missing') {
       await mkdir(dirname(dir), { recursive: true })
       const partial = `${dir}.partial-${randomBytes(4).toString('hex')}`
       try {
-        await git(['clone', '--quiet', '--no-checkout', ...spec.branch === undefined ? [] : ['--branch', spec.branch], '--', spec.url, partial], { timeoutMs })
+        await git(['clone', '--quiet', '--no-checkout', ...spec.branch === undefined ? [] : ['--branch', spec.branch], '--', spec.url, partial], { timeoutMs, env })
         await rename(partial, dir)
       } catch (error) {
         await rm(partial, { recursive: true, force: true })
@@ -418,10 +441,10 @@ export class RepoRegistry {
       }
       const origin = (await git(['remote', 'get-url', 'origin'], { cwd: dir, timeoutMs })).trim()
       if (origin !== spec.url) throw new Error(`${dir} 已被另一个仓库占用（origin 为 ${origin}）`)
-      await git(['fetch', '--quiet', '--prune', 'origin'], { cwd: dir, timeoutMs })
+      await git(['fetch', '--quiet', '--prune', 'origin'], { cwd: dir, timeoutMs, env })
       if (firstVisit) await git(['worktree', 'prune'], { cwd: dir, timeoutMs })
     }
-    const target = spec.branch === undefined ? await this.remoteHead(dir) : `refs/remotes/origin/${spec.branch}`
+    const target = spec.branch === undefined ? await this.remoteHead(dir, env) : `refs/remotes/origin/${spec.branch}`
     const [commit = '', commitTime = ''] = (await git(['log', '-1', '--format=%H%n%cI', target, '--'], { cwd: dir, timeoutMs })).trim().split('\n')
     return { commit, commitTime }
   }
@@ -480,14 +503,14 @@ export class RepoRegistry {
     }
   }
 
-  private async remoteHead(dir: string): Promise<string> {
+  private async remoteHead(dir: string, env: Readonly<Record<string, string>>): Promise<string> {
     const { git, gitTimeoutMs: timeoutMs } = this.deps
     const read = async (): Promise<string> => (await git(['symbolic-ref', 'refs/remotes/origin/HEAD'], { cwd: dir, timeoutMs })).trim()
     try {
       return await read()
     } catch (error) {
       if (!(error instanceof GitError)) throw error
-      await git(['remote', 'set-head', 'origin', '--auto'], { cwd: dir, timeoutMs })
+      await git(['remote', 'set-head', 'origin', '--auto'], { cwd: dir, timeoutMs, env })
       return await read()
     }
   }

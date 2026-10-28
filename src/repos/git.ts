@@ -1,6 +1,7 @@
 /**
  * 本机 git 命令的调用封装：沿用本机已有凭据（SSH key 或 credential helper），
- * 禁止交互式提示，避免后台拉取卡在密码输入上。
+ * 或由调用方经环境变量提供的访问令牌；禁止交互式提示，避免后台拉取卡在
+ * 密码输入上。
  *
  * @module dsh-guanxiang/repos/git
  */
@@ -18,8 +19,16 @@ export class GitError extends Error {
   }
 }
 
+/** Options of one git command. */
+export interface GitRunOptions {
+  cwd?: string
+  timeoutMs: number
+  /** Variables added to the environment of this command only (credentials for network commands). */
+  env?: Readonly<Record<string, string>>
+}
+
 /** Runs one git command and resolves its stdout. */
-export type GitRunner = (args: readonly string[], options: { cwd?: string; timeoutMs: number }) => Promise<string>
+export type GitRunner = (args: readonly string[], options: GitRunOptions) => Promise<string>
 
 /**
  * Environment for non-interactive git: no terminal prompts, and SSH in batch
@@ -36,13 +45,13 @@ export function gitEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.Pro
 /**
  * Default runner backed by the `git` executable on PATH.
  * @param args - git arguments.
- * @param options - working directory and timeout.
+ * @param options - working directory, timeout, and extra environment.
  * @returns stdout.
  */
 export const runGit: GitRunner = (args, options) => new Promise((resolve, reject) => {
   execFile('git', [...args], {
     cwd: options.cwd,
-    env: gitEnvironment(),
+    env: { ...gitEnvironment(), ...options.env },
     timeout: options.timeoutMs,
     maxBuffer: 16 * 1024 * 1024,
     windowsHide: true,

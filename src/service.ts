@@ -5,21 +5,28 @@
  * @module dsh-guanxiang/service
  */
 
+import { z } from 'zod'
 import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema, expandHome } from './config.ts'
 import type { GuanxiangConfig, SettingsOverlay } from './config.ts'
 import { abortable } from './abort.ts'
 import { Dispatcher, isDelegatedAgent, isInside } from './dispatch/tool.ts'
-import type { HostContext, ToolActivationContext, WorkingDirectoryService } from './host.ts'
+import type { HostContext, HostCredentials, ToolActivationContext, WorkingDirectoryService } from './host.ts'
+import { credentialEnvironment, credentialFor, isAcceptedToken, MAX_TOKEN_LENGTH } from './repos/credentials.ts'
 import { runGit } from './repos/git.ts'
 import type { GitRunner } from './repos/git.ts'
 import { RepoRegistry } from './repos/registry.ts'
-import type { EditableSettings, StateWire } from './settings/contract.ts'
+import type { CredentialsWire, EditableSettings, StateWire, TokenStatusWire } from './settings/contract.ts'
 import { diffOverlay, overriddenKeys } from './settings/overlay.ts'
 import type { OverlayStore } from './settings/overlay.ts'
 import { createEntrySkillProvider } from './skill/entry.ts'
 
 /** A settings write the panel reports as a field error. */
 export class SettingsError extends Error {}
+
+const tokenClearSchema = z.object({ tokenEnv: z.string() }).strict()
+const tokenSetSchema = tokenClearSchema.extend({
+  value: z.string().trim().refine(isAcceptedToken, `令牌不能为空、超过 ${MAX_TOKEN_LENGTH} 个字符或包含换行等控制字符`),
+}).strict()
 
 /** Optional seams for tests. */
 export interface ServiceOptions {
@@ -58,6 +65,7 @@ export class GuanxiangService {
     this.registry = new RepoRegistry({
       git: options.git ?? runGit,
       gitTimeoutMs: config.gitTimeoutMs,
+      auth: url => this.gitAuth(url),
       onChange: () => { this.onRegistryChange() },
     })
     this.dispatcher = new Dispatcher({
@@ -162,14 +170,88 @@ export class GuanxiangService {
   }
 
   /** @returns the panel state. */
-  state(): StateWire {
+  async state(): Promise<StateWire> {
     return {
       settings: this.current,
       defaults: this.defaults,
       overridden: overriddenKeys(this.overlay),
       ...this.overlayError === undefined ? {} : { overlayError: this.overlayError },
       repos: this.registry.status(),
+      credentials: await this.credentialsState(),
     }
+  }
+
+  private credentialStore(): HostCredentials | undefined {
+    return this.ctx.get?.('credentials') as HostCredentials | undefined
+  }
+
+  private async credentialsState(): Promise<CredentialsWire> {
+    const store = this.credentialStore()
+    if (store === undefined) return { available: false, tokens: [] }
+    const names = [...new Set(this.current.gitCredentials.map(credential => credential.tokenEnv))]
+    const tokens = await Promise.all(names.map(async (tokenEnv): Promise<TokenStatusWire> => {
+      try {
+        const info = await store.describe(tokenEnv)
+        return { tokenEnv, configured: info.configured, ...info.source === undefined ? {} : { source: info.source }, writable: info.writable }
+      } catch (error) {
+        return { tokenEnv, configured: false, writable: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }))
+    return { available: true, tokens }
+  }
+
+  /**
+   * Environment carrying the access token for one repository address; empty
+   * when no access-token configuration matches it.
+   * @param url - repository address.
+   * @returns variables for its network git commands.
+   * @throws when a configuration matches but its token cannot be read.
+   */
+  private async gitAuth(url: string): Promise<Record<string, string>> {
+    const spec = credentialFor(url, this.current.gitCredentials)
+    if (spec === undefined) return {}
+    const store = this.credentialStore()
+    if (store === undefined) throw new Error(`地址匹配访问令牌 ${spec.url}，但当前 DSH 组合没有凭据服务，无法读取 ${spec.tokenEnv}`)
+    const token = await store.resolve(spec.tokenEnv)
+    if (token === undefined) throw new Error(`地址匹配访问令牌 ${spec.url}，但 ${spec.tokenEnv} 未设置：请在观象面板「访问令牌」中保存令牌，或设置同名环境变量`)
+    if (!isAcceptedToken(token.value)) throw new Error(`${spec.tokenEnv} 的值不能用作令牌：不能超过 ${MAX_TOKEN_LENGTH} 个字符或包含换行等控制字符`)
+    return credentialEnvironment(spec, token.value)
+  }
+
+  /**
+   * Store the token of one access-token configuration in DSH's credential
+   * store, then re-sync the repositories that use it.
+   * @param raw - request body `{ tokenEnv, value }`.
+   * @returns the new panel state.
+   * @throws SettingsError when the body is invalid, the name is not referenced by the saved settings, or no credential store is loaded.
+   */
+  async setToken(raw: unknown): Promise<StateWire> {
+    const parsed = tokenSetSchema.safeParse(raw)
+    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
+    return await this.writeToken(parsed.data.tokenEnv, parsed.data.value)
+  }
+
+  /**
+   * Remove the stored token of one access-token configuration; an environment
+   * variable of the same name applies again afterwards.
+   * @param raw - request body `{ tokenEnv }`.
+   * @returns the new panel state.
+   * @throws SettingsError on the same conditions as {@link setToken}.
+   */
+  async clearToken(raw: unknown): Promise<StateWire> {
+    const parsed = tokenClearSchema.safeParse(raw)
+    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
+    return await this.writeToken(parsed.data.tokenEnv, undefined)
+  }
+
+  private async writeToken(tokenEnv: string, value: string | undefined): Promise<StateWire> {
+    if (!this.current.gitCredentials.some(credential => credential.tokenEnv === tokenEnv)) throw new SettingsError(`${tokenEnv} 不是已保存的访问令牌配置引用的名称`)
+    const store = this.credentialStore()
+    if (store === undefined) throw new SettingsError('当前 DSH 组合没有凭据服务（@deepseek-ai/dsh-credentials-local），无法保存令牌')
+    if (value === undefined) await store.unset(tokenEnv)
+    else await store.set(tokenEnv, value)
+    void this.registry.resyncUrls(this.current.repos.map(repo => repo.url).filter(url => credentialFor(url, this.current.gitCredentials)?.tokenEnv === tokenEnv))
+    return await this.state()
   }
 
   /**
@@ -185,7 +267,7 @@ export class GuanxiangService {
     const overlay = diffOverlay(this.defaults, applyOverlay(this.defaults, parsed.data))
     await this.store.write(overlay)
     this.apply(overlay)
-    return this.state()
+    return await this.state()
   }
 
   /**
@@ -195,7 +277,7 @@ export class GuanxiangService {
   async reset(): Promise<StateWire> {
     await this.store.write({})
     this.apply({})
-    return this.state()
+    return await this.state()
   }
 
   /**
@@ -208,12 +290,21 @@ export class GuanxiangService {
     void (url === undefined ? this.registry.syncAll() : this.registry.syncUrls([url]))
   }
 
+  /**
+   * Make an overlay effective and sync the repositories whose address, branch,
+   * directory, or matching access-token configuration changed.
+   */
   private apply(overlay: SettingsOverlay): void {
+    const previous = this.current.gitCredentials
     this.overlay = overlay
     this.overlayError = undefined
     this.current = applyOverlay(this.defaults, overlay)
     const changed = this.registry.configure(this.current.reposDir, this.current.repos)
+    const next = this.current.gitCredentials
+    const reauthorized = this.current.repos.map(repo => repo.url)
+      .filter(url => JSON.stringify(credentialFor(url, previous)) !== JSON.stringify(credentialFor(url, next)))
     void this.registry.syncUrls(changed)
+    void this.registry.resyncUrls(reauthorized.filter(url => !changed.includes(url)))
   }
 
   private onRegistryChange(): void {
