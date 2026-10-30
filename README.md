@@ -117,6 +117,9 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
     skillUpdateAuthor:                 # 可选：SKILL 改进提交的作者；省略时使用本机 git 的 user.name / user.email
       name: 观象
       email: guanxiang@example.com
+    analyze:                           # 日志平台分析接口，见下文
+      enabled: false                   # 默认关闭
+    analyzeTokenRef: GUANXIANG_ANALYZE_TOKEN  # 接口访问令牌在 DSH 凭据库中的名称
 ```
 
 配置在加载时校验，不合法时插件加载失败。git 地址支持 https/http/ssh/git/file URL、`user@host:path` 和绝对路径，拉取时使用本机已有的 git 凭据（SSH key 或 credential helper），不会弹出交互式输入。
@@ -145,6 +148,7 @@ DSH Web 左侧栏的「观象」入口打开整页设置面板：
 | 应用仓库 | git 地址列表（分支可选）、每个仓库的拉取状态、提交号、应用描述与不可用原因，单个或全部重新拉取 |
 | 访问令牌 | 填 GitLab 地址、令牌别名和令牌三项即可添加；用户名固定为 oauth2，凭据库键名自动分配（`GUANXIANG_GITLAB_TOKEN`、`GUANXIANG_GITLAB_TOKEN_2`……）。每行显示令牌是否已设置及来源，可替换或清除 |
 | 日志下载 | 允许下载的域名、单文件大小上限、下载超时 |
+| 分析接口 | [日志平台分析接口](#日志平台分析接口)的开关、访问令牌（只显示是否已设置）、飞书渠道是否就绪，以及调用地址与字段摘要 |
 | 高级 | 拉取目录、更新间隔、单次应用数上限、派发超时、SKILL 改进开关与提议上限，恢复 cordis.yml 配置 |
 
 面板保存的值写入 `$DSH_HOME/guanxiang/settings.json`（只保存与 cordis.yml 不同的字段），按与配置相同的规则校验；令牌值不在其中，存入 DSH 凭据库。面板接口 `/guanxiang/*` 使用 DSH 自己的登录与来源校验，写操作另做同源校验。
@@ -185,9 +189,66 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 - 合并请求以令牌主人的身份创建，提交作者是 `skillUpdateAuthor` 或本机 git 身份。飞书群里点「允许」的人可能不是令牌主人；合并请求描述写明了来源会话与分析提交。
 - 日志内容不可信，可能诱导模型写出不当的 SKILL。观象只限制改动范围，内容需要授权的人和合并请求的评审者把关。
 
+## 日志平台分析接口
+
+日志平台调用观象的分析接口：观象经 [dsh_channels](https://github.com/modestoma/dsh_channels) 的 `feishuTopics` 服务在指定群里发一张分析卡（发起人、触发时间、应用、错误码和日志详情页表格），在卡片下开话题，把平台给的 prompt 原样交给一个新 Session（prompt 开头的斜杠命令由 DSH 展开成对应 SKILL，例如 `/guanxiang`），分析过程在话题内流式输出。分析结束后分析卡的状态标签随之更新，群里通过准入的成员都可以在该话题内追问。日志包地址写在 prompt 里，下载、解压、超时都由 prompt 调用的 SKILL 处理（Session 的沙箱需要能访问日志存储地址）。
+
+接口原由 dsh_channels 0.7 提供，从 dsh_channels 0.8 起迁到观象，请求、响应、错误文本和去重记录都不变。
+
+**前提**：
+
+- dsh_channels 0.8 及以上已加载并提供 `feishuTopics` 服务（版本 1）。没有这个服务时观象不注册接口：dsh_channels 0.7 自带同名接口，升级前由它提供；服务版本不兼容时观象记一条警告，也不注册。设置面板「分析接口」分页显示飞书渠道是否就绪。
+- 只有带 Web 的 profile（web、desktop）有这个接口，headless 没有。
+
+**开启**：在设置面板「分析接口」打开开关（`analyze.enabled`，默认关，保存后立即生效），并在同一页保存访问令牌（建议 32 位以上随机串）。令牌存入 DSH 凭据库的 `GUANXIANG_ANALYZE_TOKEN`（名称可用 `analyzeTokenRef` 修改），也可以设置同名环境变量或写进 `.env`。接口挂在 DSH Web 服务上（与 Web 界面同一端口），路径 `/open-api/logalyze` 放在 DSH 的 `/api` 之外，网关可以把它与需要登录的 DSH 接口分开放行；DSH 通过反向代理挂在前缀下时，地址随之带上前缀（如 `https://<域名>/dsh/open-api/logalyze`）。该路由不走 DSH 登录 cookie，访问令牌是唯一凭据。开关关闭时所有请求返回 404；令牌每次请求都重新读取，轮换后下一次请求生效；令牌未设置时所有请求返回 503。
+
+**从 dsh_channels 0.7 迁移**：把观象和 dsh_channels 一起升级；在观象面板「分析接口」打开开关并保存令牌（新名称 `GUANXIANG_ANALYZE_TOKEN`，可以填原来的令牌值，日志平台无需改动）；然后从 cordis.yml 删掉 dsh_channels 的 `analyzeEnabled` 和 `analyzeToken`（新版 dsh_channels 会对这两项打印警告）。升级前接受过的 `Idempotency-Key` 升级后照常重放。
+
+**请求**：
+
+```http
+POST /open-api/logalyze
+Authorization: Bearer <令牌>
+Idempotency-Key: <平台生成的唯一值，1-200 个可见 ASCII 字符>
+Content-Type: application/json
+
+{
+  "requesterUserId": "a1b2c3d4",
+  "triggeredAt": "2026-10-22 19:30",
+  "app": "camera",
+  "errorCode": "E1001",
+  "logDetails": [
+    { "name": "设备 A 崩溃日志", "url": "https://logs.example.com/detail/1" },
+    { "name": "设备 B 崩溃日志", "url": "https://logs.example.com/detail/2" }
+  ],
+  "chatId": "oc_xxx",
+  "prompt": "/guanxiang https://logs.example.com/1.zip https://logs.example.com/2.zip 请分析这些日志"
+}
+```
+
+- `requesterUserId`：平台发起人的飞书 user_id，分析卡 @ 此人；路由记录里也以此人作为发起人。
+- `triggeredAt`：平台上发起分析的时间，1–64 字符，原样显示在分析卡上（时区和格式由平台决定）。
+- `app` / `errorCode`：只允许 `A-Z a-z 0-9 . _ -`（1–128 字符），决定工作区 `<dsh_channels baseDir>/analyze/<app>/<errorCode>/`；同一应用同一错误码的所有分析都在这个工作区里，每次分析各有一个话题目录。
+- `logDetails`：触发分析的日志在日志平台上的详情页，1–50 条，每条 `name`（1–200 字符）+ `url`（http/https）。只在分析卡的表格里列出，观象不会访问这些地址。
+- `chatId`：目标群，必须是 dsh_channels 已授权的群（`/auth group add` 或其面板「访问与授权」），机器人需在群内；dsh_channels `accessMode: open` 时不校验。
+- `prompt`：1–100000 字符，原样作为首条用户消息，不追加任何内容。
+- 只接受以上 7 个字段，多余字段返回 400。
+
+**响应**：校验通过、分析卡发出后立即返回 `202`：
+
+```json
+{ "ok": true, "chatId": "oc_xxx", "messageId": "om_xxx" }
+```
+
+`messageId` 是分析卡的消息 id，分析话题挂在它下面。同步错误都带中文 `error`：`401` 令牌无效、`404` 接口开关未打开（或接口未注册）、`405` 不是 POST、`400` 参数或 `Idempotency-Key` 不合法、`403` 目标群未授权、`409` 同一个 `Idempotency-Key` 已被内容不同的请求使用、`413` 请求体超过 1 MiB、`415` 不是 JSON、`502` 分析卡发送失败（如机器人不在群里）、`503` 飞书未连接或未设置令牌。
+
+**去重**：同一个 `Idempotency-Key` 再次请求（包括并发重试）原样返回第一次的结果，不会再发卡、再分析。记录由 dsh_channels 永久保存。分析卡发出后的失败（话题创建、Session 创建）不会回滚这条记录：分析卡的状态变成「失败」并写明原因，需要重试时请换一个新的 `Idempotency-Key`。
+
+**群里看到的**：先是分析卡「@发起人 于 <triggeredAt> 发起了对 X 应用 Y 错误码不良日志的分析」，下面是日志详情页表格，标题栏标签为「分析中」；紧接着话题内一张流式卡片，首轮分析在这里流式输出，带停止按钮。首轮结束后分析卡的标签变成「已完成」「已停止」或「失败」；DSH 在首轮进行中重启时，重新连上飞书后仍是「分析中」的分析卡会改成「已中断」，在话题内回复即可继续。分析话题是群内共享的：群里任何通过 dsh_channels 准入的成员都可以在话题内追问、停止或回答审批卡。卡片、话题与权限的细节见 dsh_channels README 的「群话题服务（feishuTopics）」。
+
 ## 通过飞书使用
 
-观象与 [dsh_channels](https://github.com/modestoma/dsh_channels) 没有代码耦合。dsh_channels 把不在自己命令表中的 `/` 开头消息作为普通 prompt 交给 dsh，dsh 识别 `/guanxiang` 后展开入口 SKILL。飞书附件的宿主路径会出现在消息里，入口 SKILL 会把它作为日志路径派发。
+在飞书里使用 `/guanxiang` 不需要观象与 [dsh_channels](https://github.com/modestoma/dsh_channels) 之间的任何接口：dsh_channels 把不在自己命令表中的 `/` 开头消息作为普通 prompt 交给 dsh，dsh 识别 `/guanxiang` 后展开入口 SKILL。飞书附件的宿主路径会出现在消息里，入口 SKILL 会把它作为日志路径派发。只有[日志平台分析接口](#日志平台分析接口)经 dsh_channels 的 `feishuTopics` 服务发卡开话题；观象只在开发时依赖 dsh_channels 的类型，运行时按服务名查找，没有加载 dsh_channels 时其余功能不受影响。
 
 ## 开发
 
@@ -195,6 +256,8 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 pnpm install
 pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + 两个加载自检
 ```
+
+`@modesto_ma/dsh-channels` 是开发依赖，只用来引入 `feishuTopics` 服务的类型（`@modesto_ma/dsh-channels/topics`，`import type`），构建产物不包含它。
 
 ## 发布
 
@@ -215,6 +278,7 @@ pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + �
 | `src/skill/entry.ts` | `/guanxiang` 入口 SKILL |
 | `src/dispatch/` | 派发工具、日志下载、子 Agent 首条消息 |
 | `src/skill-update/` | SKILL 修改提议的校验、提交、授权与推送 |
+| `src/analyze/` | 日志平台分析接口：请求校验、令牌、到 `feishuTopics` 的转换 |
 | `src/settings/` | 面板契约、覆盖文件、HTTP 路由 |
 | `src/client/` | 左侧栏入口与设置页面 |
 | `examples/order-service/` | 示例应用仓库 |
