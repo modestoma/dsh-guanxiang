@@ -326,7 +326,7 @@ function ReposTab({ draft, setDraft, state, busy, openRepoSettings, onSync }: Ta
         </div>
       </div>
       {state.dshRepo.availability === 'ready' ? null : <div className="lz__notice lz__notice--error">{state.dshRepo.availability === 'missing' ? '没有加载 dsh-repo 插件，仓库无法拉取。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，仓库无法拉取。'}</div>}
-      <p className="lz__secFoot">由 dsh-repo 拉取到它的镜像目录{state.dshRepo.mirrorDir === undefined ? '' : `（${state.dshRepo.mirrorDir}）`}。https 地址使用 dsh-repo 中对应主机的令牌，主机或令牌变更后会自动重新拉取，ssh 地址和其他主机使用本机已有的 git 凭据（SSH key 或 credential helper）。不留分支时跟随远端默认分支。每个仓库需包含 <span className="lz__mono">.dsh/logalyze.yaml</span> 与其中声明的日志分析 SKILL。删除地址不会删除本地镜像。</p>
+      <p className="lz__secFoot">由 dsh-repo 拉取到它的镜像目录{state.dshRepo.mirrorDir === undefined ? '' : `（${state.dshRepo.mirrorDir}）`}。https 地址使用 dsh-repo 中对应主机的令牌，主机或令牌变更后会自动重新拉取，ssh 地址和其他主机使用本机已有的 git 凭据（SSH key 或 credential helper）。不留分支时跟随远端默认分支。每个仓库需包含 <span className="lz__mono">.agents/logalyze.yaml</span> 与其中声明的日志分析 SKILL。删除地址不会删除本地镜像。</p>
       <div className="lz__headRow">
         {state.repos.length > 0 ? <button type="button" className="lz__btn" disabled={busy} onClick={() => { onSync() }}>重新拉取全部</button> : null}
         {openRepoSettings === undefined || state.dshRepo.availability === 'missing' ? null : <button type="button" className="lz__btn lz__btn--ghost" onClick={openRepoSettings}>管理主机与令牌</button>}

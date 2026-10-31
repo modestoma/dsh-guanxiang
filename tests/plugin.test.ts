@@ -1,21 +1,20 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import { mkdir, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { runGit } from 'dsh-repo'
-import type { GitRunner, RepoService } from 'dsh-repo'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index.ts'
 import type { HostContext, SkillProvider, SkillProviderControl, ToolActivationContext, ToolDefinition } from '../src/host.ts'
 import type { StateWire } from '../src/settings/contract.ts'
-import { commitFile, createAppRepo, createRepos, git, memoryCredentials, serveGitOverHttp, tempDir, waitFor } from './helpers.ts'
+import { FakeRepos } from './fake-repos.ts'
+import { commitFile, createAppRepo, tempDir, waitFor } from './helpers.ts'
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 
 interface Harness {
   ctx: HostContext
   /** The `dshRepos` service the context provides, unless the test replaced it. */
-  repos: RepoService
+  repos: FakeRepos
   tools: { definition: ToolDefinition<unknown>; when?: (context: ToolActivationContext) => boolean | Promise<boolean>; disposed: boolean }[]
   skills: SkillProvider[]
   base: string
@@ -27,13 +26,12 @@ const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => cleanup())) })
 
 /**
- * A plugin context with a web server and a real `dshRepos` service; entries of
+ * A plugin context with a web server and a local `dshRepos` stand-in; entries of
  * `services` add or replace context services (`dshRepos: undefined` removes it).
  */
-async function harness(services: Record<string, unknown> = {}, options: { git?: GitRunner } = {}): Promise<Harness> {
-  const { dir, cleanup } = await tempDir('logalyze-dsh-repo-')
-  const credentials = services.credentials as ReturnType<typeof memoryCredentials> | undefined ?? memoryCredentials()
-  const repos = createRepos(dir, {}, credentials, options.git)
+async function harness(services: Record<string, unknown> = {}): Promise<Harness> {
+  const { dir, cleanup } = await tempDir('logalyze-repos-')
+  const repos = new FakeRepos(dir)
   services = { dshRepos: repos, ...services }
   const routes = new Map<string, Handler>()
   const tools: Harness['tools'] = []
@@ -134,13 +132,11 @@ describe('plugin', () => {
     const { dir, cleanup } = await tempDir()
     cleanups.push(cleanup)
     const origin = await createAppRepo(join(dir, 'order-service'))
-    const manifestPath = join(origin, '.dsh', 'logalyze.yaml')
+    const manifestPath = join(origin, '.agents', 'logalyze.yaml')
     const addHint = async (hint: string): Promise<void> => {
-      await commitFile(origin, '.dsh/logalyze.yaml', (await readFile(manifestPath, 'utf8')).replace('logHints: [', `logHints: [${hint}, `))
+      await commitFile(origin, '.agents/logalyze.yaml', (await readFile(manifestPath, 'utf8')).replace('logHints: [', `logHints: [${hint}, `))
     }
-    const stalled = { value: false }
-    const git: GitRunner = (args, options) => stalled.value && args[0] === 'fetch' ? new Promise(() => {}) : runGit(args, options)
-    const h = await harness({}, { git })
+    const h = await harness()
     cleanups.push(h.dispose)
     apply(h.ctx, { repos: [{ url: origin }], refreshWaitMs: 2000 }, { overlayPath: join(dir, 'settings.json') })
     const provider = h.skills[0]!
@@ -150,7 +146,7 @@ describe('plugin', () => {
     await addHint('PushedHint')
     expect((await provider.get(candidate!, {}))?.content).toContain('`PushedHint`')
 
-    stalled.value = true
+    h.repos.stalled = true
     await addHint('LateHint')
     const started = Date.now()
     const content = (await provider.get(candidate!, {}))?.content
@@ -217,38 +213,26 @@ describe('plugin', () => {
     expect(await h.tools[0]!.when?.(step)).toBe(false)
   })
 
-  it('pulls https repositories again after a dsh-repo host or token change, without exposing the token', async () => {
+  it('pulls every repository again after a dshRepos host or token change', async () => {
     const { dir, cleanup } = await tempDir()
     cleanups.push(cleanup)
-    const work = await createAppRepo(join(dir, 'order-service'))
-    await mkdir(join(dir, 'served', 'team'), { recursive: true })
-    git(dir, 'clone', '-q', '--bare', work, join(dir, 'served', 'team', 'order-service.git'))
-    const token = 'glpat-Secret0123456789'
-    const server = await serveGitOverHttp(join(dir, 'served'), 'oauth2', token)
-    cleanups.push(server.close)
-    const h = await harness({ credentials: memoryCredentials() })
+    const origin = await createAppRepo(join(dir, 'order-service'))
+    const h = await harness()
     cleanups.push(h.dispose)
-    const url = `${server.base}/team/order-service.git`
-    apply(h.ctx, { repos: [{ url }] }, { overlayPath: join(dir, 'settings.json') })
+    apply(h.ctx, { repos: [{ url: origin }] }, { overlayPath: join(dir, 'settings.json') })
     const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/logalyze/state`))
 
-    await waitFor(async () => (await state()).repos[0]?.phase === 'failed')
+    await waitFor(async () => (await state()).repos[0]?.available === true)
     expect((await state()).dshRepo).toEqual({ availability: 'ready', mirrorDir: h.repos.mirrorSettings().dir })
     expect((await fetch(`${h.base}/logalyze/hosts`, { method: 'POST' })).status).not.toBe(200)
-
-    await h.repos.addHost({ url: server.base, token: 'glpat-wrong' })
-    await waitFor(async () => { const repo = (await state()).repos[0]; return repo?.phase === 'failed' && repo.syncedAt !== undefined })
-    expect(JSON.stringify(await state())).not.toContain('glpat-wrong')
-
-    await h.repos.setHostToken(server.base, token)
-    await waitFor(async () => (await state()).repos[0]?.available === true)
-    const ready = await state()
-    expect(JSON.stringify(ready)).not.toContain(token)
-    expect(await readFile(join(ready.repos[0]!.dir!, '.git', 'config'), 'utf8')).not.toContain(token)
     expect((await fetch(`${h.base}/logalyze/token`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenEnv: 'GITLAB_TOKEN', value: 'x' }) })).status).toBe(400)
+
+    const head = await commitFile(origin, 'NOTES.md', 'v2\n')
+    h.repos.emitHostsChange()
+    await waitFor(async () => (await state()).repos[0]?.commit === head)
   })
 
-  it('reports a missing dsh-repo instead of pulling', async () => {
+  it('reports a missing dshRepos service instead of pulling', async () => {
     const { dir, cleanup } = await tempDir()
     cleanups.push(cleanup)
     const h = await harness({ dshRepos: undefined })

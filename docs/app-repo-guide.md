@@ -8,16 +8,16 @@
 
 | 谁 | 做什么 |
 |---|---|
-| 应用仓库 | 提供应用描述 `.dsh/logalyze.yaml` 和日志分析 SKILL `.dsh/skills/<skill>/SKILL.md`，推送到观象跟踪的分支 |
-| 观象部署方 | 同时安装观象和 [dsh-repo](https://github.com/modestoma/dsh-repo)，在 DSH Web 左侧栏的「观象」设置面板里填 git 地址，按需配置访问令牌、日志下载白名单和 SKILL 改进 |
-| 观象插件 | 经 dsh-repo 拉取仓库、生成应用目录、下载日志、在应用代码的只读快照里启动子 Agent，并汇总各应用的结论 |
+| 应用仓库 | 提供应用描述 `.agents/logalyze.yaml` 和日志分析 SKILL `.agents/skills/<skill>/SKILL.md`，推送到观象跟踪的分支 |
+| 观象部署方 | 同时安装观象和提供 `dshRepos` 服务的插件（如 [dsh-repo](https://github.com/modestoma/dsh-repo)），在 DSH Web 左侧栏的「观象」设置面板里填 git 地址，按需配置日志下载白名单和 SKILL 改进；主机和访问令牌在 dsh-repo 中配置 |
+| 观象插件 | 经 `dshRepos` 服务拉取仓库、生成应用目录、下载日志、在应用代码的只读快照里启动子 Agent，并汇总各应用的结论 |
 
 ## 接入清单
 
-1. 在仓库里新增 `.dsh/logalyze.yaml`，见[应用描述](#应用描述)。
-2. 在仓库里新增 `.dsh/skills/<skill>/SKILL.md`，见[日志分析 SKILL](#日志分析-skill)。
+1. 在仓库里新增 `.agents/logalyze.yaml`，见[应用描述](#应用描述)。
+2. 在仓库里新增 `.agents/skills/<skill>/SKILL.md`，见[日志分析 SKILL](#日志分析-skill)。
 3. 把这两个文件推送到观象跟踪的分支（默认是远端默认分支）。观象读取的是远端最新提交，不读任何本地检出。
-4. 在设置面板「应用仓库」中添加 git 地址；https 私有仓库另在「访问令牌」中为它所在的主机配置令牌，见[在设置面板接入](#在设置面板接入)。
+4. 在设置面板「应用仓库」中添加 git 地址；https 私有仓库另在 dsh-repo 中为它所在的主机配置令牌，见[在设置面板接入](#在设置面板接入)。
 5. 日志以对象存储链接提供时，在「日志下载」中加入该域名。
 6. 面板中该仓库显示为可用后，发一条 `/logalyze <问题>`，附上日志试跑。
 
@@ -25,7 +25,7 @@
 
 ```
 order-service/
-├── .dsh/
+├── .agents/
 │   ├── logalyze.yaml
 │   └── skills/
 │       └── log-analysis/
@@ -33,7 +33,7 @@ order-service/
 └── src/ …
 ```
 
-`.dsh/logalyze.yaml`：
+`.agents/logalyze.yaml`：
 
 ```yaml
 id: order-service
@@ -44,7 +44,7 @@ logHints: [order-service, OrderController]
 skill: log-analysis
 ```
 
-`.dsh/skills/log-analysis/SKILL.md`：
+`.agents/skills/log-analysis/SKILL.md`：
 
 ```markdown
 ---
@@ -74,7 +74,7 @@ description: 订单服务的日志分析流程：解压日志包、定位异常�
 
 ## 应用描述
 
-`.dsh/logalyze.yaml` 放在仓库根目录下，必须是普通文件（不能是符号链接）。
+`.agents/logalyze.yaml` 放在仓库根目录下，必须是普通文件（不能是符号链接）。
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
@@ -83,11 +83,11 @@ description: 订单服务的日志分析流程：解压日志包、定位异常�
 | `description` | 是 | 一句话说明应用负责什么，出现在入口 SKILL 的应用目录里 |
 | `aliases` | 否 | 用户对这个应用的其他叫法，如中文名简称、英文名 |
 | `logHints` | 否 | 能从日志里认出本应用的字符串，如服务名、主类名、日志 tag |
-| `skill` | 是 | 日志分析 SKILL 名，小写短横线格式；对应 `.dsh/skills/<skill>/SKILL.md` |
+| `skill` | 是 | 日志分析 SKILL 名，小写短横线格式；对应 `.agents/skills/<skill>/SKILL.md` |
 
 规则：
 
-- 观象每次加载 `/logalyze` 时先经 dsh-repo `git fetch`，再从跟踪分支的最新提交读取应用描述。改了描述或 SKILL，推送后下一次 `/logalyze` 就生效，不用重启。
+- 观象每次加载 `/logalyze` 时先经 `dshRepos` 服务 fetch，再从跟踪分支的最新提交读取应用描述。改了描述或 SKILL，推送后下一次 `/logalyze` 就生效，不用重启。
 - 一个仓库对应一个应用。多个仓库声明同一个 `id` 时，这几个仓库全部不可用。
 - 描述不合法、SKILL 缺失或设置了 `user-invocable: false` 时，应用不可用，原因显示在设置面板。
 
@@ -95,7 +95,7 @@ description: 订单服务的日志分析流程：解压日志包、定位异常�
 
 ### 硬性要求
 
-- 路径是 `.dsh/skills/<skill>/SKILL.md`，`<skill>` 与 `logalyze.yaml` 的 `skill` 字段相同，必须是普通文件。
+- 路径是 `.agents/skills/<skill>/SKILL.md`，`<skill>` 与 `logalyze.yaml` 的 `skill` 字段相同，必须是普通文件。
 - frontmatter 的 `name` 也要等于 `<skill>`。DSH 按 frontmatter 的 `name` 注册 SKILL，观象派发时用 `/<skill>` 加载它，名称不一致时子 Agent 加载不到。`description` 必填。
 - 不能设置 `user-invocable: false`，否则 `/<skill>` 无法加载，观象会把应用标为不可用。
 - 可以设置 `disable-model-invocation: true`：开发者在本仓库里使用 dsh 时模型就不会自行加载它，观象的 `/<skill>` 加载不受影响。
@@ -156,17 +156,16 @@ DSH Web 左侧栏「观象」打开设置面板。面板保存的值写入 `$DSH
 | 分页 | 应用仓库需要的设置 |
 |---|---|
 | 应用仓库 | 填 git 地址，分支可选（默认跟随远端默认分支）。支持 https/http/ssh/git/file URL、`user@host:path` 和绝对路径。拉取后显示提交号、应用描述或不可用原因 |
-| 访问令牌 | https 私有仓库需要。这里管理的是 dsh-repo 的主机：选 GitLab 或 GitHub，填主机地址（如 `https://gitlab.example.com`）、别名和令牌即可添加，立即生效 |
 | 日志下载 | 日志以链接提供时，把对象存储域名加入白名单（同时允许其子域名） |
 | 高级 | 拉取间隔、单次应用数上限、派发超时、SKILL 改进开关 |
 
 ### git 地址与令牌
 
-- 仓库由 dsh-repo 拉取，观象自己不运行 git。没有安装 dsh-repo 或其服务版本不兼容时，所有仓库都拉取失败，原因显示在面板。
-- https 地址属于 dsh-repo 中某个主机时，拉取自动使用该主机的令牌（GitLab 用户名 `oauth2`）。主机可以在面板「访问令牌」添加，也可以写在 dsh-repo 的 `hosts` 配置中。令牌值存在 DSH 凭据库，不进配置文件、命令行和模型上下文。
+- 仓库由 `dshRepos` 服务拉取，观象自己不运行 git。没有该服务或服务版本不兼容时，所有仓库都拉取失败，原因显示在面板。
+- https 私有仓库所在主机的令牌在 dsh-repo 中配置，「应用仓库」分页的「管理主机与令牌」直接跳过去。主机或令牌变更后观象自动重新拉取全部仓库。
 - ssh 地址、`user@host:path`、其他主机和本地路径使用运行 dsh 的机器上已有的 git 凭据（SSH key 或 credential helper），不会弹出交互式输入。
 - 令牌权限：只拉取时，GitLab 需要 `read_repository`，GitHub 需要 Contents 读权限。开启 [SKILL 改进](#skill-改进可选) 时，GitLab 需要 `api`，GitHub 需要 Contents 和 Pull requests 读写权限。
-- **建议使用项目访问令牌**（或组访问令牌）：只覆盖要接入的应用仓库，设置过期时间，并用 dsh-repo 的 `repos` 限定范围。个人令牌能访问令牌主人有权限的所有项目，加了写权限后风险更大。
+- **建议使用项目访问令牌**（或组访问令牌）：只覆盖要接入的应用仓库，设置过期时间。个人令牌能访问令牌主人有权限的所有项目，加了写权限后风险更大。
 
 ### 日志下载
 
@@ -178,19 +177,19 @@ DSH Web 左侧栏「观象」打开设置面板。面板保存的值写入 `$DSH
 
 观象可以把分析中发现的 SKILL 欠缺提交为合并请求。默认关闭，在设置面板「高级」→「SKILL 改进」开启。
 
-流程：子 Agent 把修改后的完整文件和理由写到运行目录 → 观象校验并生成 diff → 父 Agent 在回复中展示改动并请求授权（飞书里是决策卡片，Web 里是审批提示）→ 用户点「允许」后，观象经 dsh-repo 以分析时的提交为起点建新分支 `logalyze/skill-<应用 id>-<改动摘要前缀>`，提交改动，并创建合入跟踪分支的合并请求（GitLab MR 或 GitHub PR）。
+流程：子 Agent 把修改后的完整文件和理由写到运行目录 → 观象校验并生成 diff → 父 Agent 在回复中展示改动并请求授权（飞书里是决策卡片，Web 里是审批提示）→ 用户点「允许」后，观象经 `dshRepos` 服务以分析时的提交为起点建新分支 `logalyze/skill-<应用 id>-<改动摘要前缀>`，提交改动，并创建合入跟踪分支的合并请求（GitLab MR 或 GitHub PR）。
 
 前提与限制：
 
 - **权限模式必须是「询问」类。** 会话的审批策略为 `never`（DSH「完全访问」模式）时授权请求一律被拒绝，不会推送。
-- **支持 GitLab（包括自建实例）和 GitHub。** 应用仓库的 git 地址（https、ssh 或 `user@host:path`）要能被 dsh-repo 识别为已配置主机上的仓库，该主机的令牌要有上面列出的写权限。
-- **合并请求以 dsh-repo 令牌主人的身份创建。** 提交作者是观象配置的 `skillUpdateAuthor`，省略时也是令牌主人。
-- **改动范围只限 `.dsh/skills/<skill>/`。** 观象不提交到已有分支和默认分支，合并由仓库的评审流程决定，合并后下一次 `/logalyze` 生效。
+- **支持 GitLab（包括自建实例）和 GitHub。** 应用仓库的 git 地址（https、ssh 或 `user@host:path`）要能被 `dshRepos` 识别为已配置主机上的仓库，该主机的令牌要有上面列出的写权限。
+- **合并请求以该主机令牌主人的身份创建。** 提交作者是观象配置的 `skillUpdateAuthor`，省略时也是令牌主人。
+- **改动范围只限 `.agents/skills/<skill>/`。** 观象不提交到已有分支和默认分支，合并由仓库的评审流程决定，合并后下一次 `/logalyze` 生效。
 
 应用仓库维护者应当：
 
 - 保护默认分支，要求合并请求评审后才能合入。
-- 用 CODEOWNERS 等方式为 `.dsh/skills/` 指定评审人。
+- 用 CODEOWNERS 等方式为 `.agents/skills/` 指定评审人。
 - 评审时留意改动内容。日志内容不可信，可能诱导模型写出不当的 SKILL；观象只限制改动范围，不判断内容。
 
 ## 自检与排错
@@ -199,14 +198,15 @@ DSH Web 左侧栏「观象」打开设置面板。面板保存的值写入 `$DSH
 
 | 面板显示 | 处理 |
 |---|---|
-| 仓库缺少应用描述 `.dsh/logalyze.yaml` | 确认文件已推送到跟踪分支，路径和文件名正确 |
-| `.dsh/logalyze.yaml` 不合法：… | 按提示修正字段，`id` 和 `skill` 只能是小写字母、数字和短横线 |
-| 仓库缺少日志分析 SKILL `.dsh/skills/<skill>/SKILL.md` | 目录名要与 `skill` 字段一致 |
+| 仓库缺少应用描述 `.agents/logalyze.yaml` | 确认文件已推送到跟踪分支，路径和文件名正确 |
+| `.agents/logalyze.yaml` 不合法：… | 按提示修正字段，`id` 和 `skill` 只能是小写字母、数字和短横线 |
+| 仓库缺少日志分析 SKILL `.agents/skills/<skill>/SKILL.md` | 目录名要与 `skill` 字段一致 |
 | … 设置了 `user-invocable: false` … | 删除该设置 |
 | … 不是普通文件 | 把符号链接换成真实文件 |
 | 多个仓库声明同一个应用 id | 给其中一个仓库换 `id` |
-| 观象需要 dsh-repo 插件… / dsh-repo 的服务与观象不兼容… | 安装或换用兼容版本的 dsh-repo |
-| 拉取失败（认证、令牌未设置） | 检查「访问令牌」中的主机地址和令牌权限；ssh 地址检查本机 SSH key |
+| 观象需要 dsh-repo 插件… / dsh-repo 的服务与观象不兼容… | 安装或换用提供 `dshRepos` 服务版本 1 的插件 |
+| 拉取失败（认证、令牌未设置） | 检查 dsh-repo 中的主机地址和令牌权限；ssh 地址检查本机 SSH key |
+| 面板可用，但子 Agent 加载的 SKILL 不是 `.agents/skills/<skill>/` 下这份 | 删除仓库里 `.dsh/skills/` 下的同名 SKILL：DSH 同名时优先加载 `.dsh/skills/` |
 
 面板显示可用但子 Agent 没有按 SKILL 工作时，先检查 SKILL frontmatter 的 `name` 是否与 `skill` 字段一致。
 

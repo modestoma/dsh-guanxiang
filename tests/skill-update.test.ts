@@ -9,13 +9,14 @@ import type { EditableSettings } from '../src/settings/contract.ts'
 import { DIFF_FILE, readProposal } from '../src/skill-update/proposal.ts'
 import { renderProposeValue, SkillUpdater } from '../src/skill-update/tool.ts'
 import type { DispatchedTask } from '../src/skill-update/tool.ts'
-import { createAppRepo, createRepos, tempDir } from './helpers.ts'
+import { FakeRepos } from './fake-repos.ts'
+import { createAppRepo, tempDir } from './helpers.ts'
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => cleanup())) })
 
 const LIMITS = { maxFiles: 4, maxFileBytes: 4096 }
-const SKILL = '.dsh/skills/log-analysis/SKILL.md'
+const SKILL = '.agents/skills/log-analysis/SKILL.md'
 const MR_URL = 'https://gitlab.example.com/group/order-service/-/merge_requests/7'
 const NEW_SKILL = '---\nname: log-analysis\ndescription: 新版\n---\n\n# 新版\n'
 
@@ -75,14 +76,13 @@ describe('readProposal', () => {
 })
 
 /**
- * A real `dshRepos` service for mirrors whose commit, branch, and merge
- * request calls are replaced by stand-ins that record calls and track which
- * branches exist.
+ * A local `dshRepos` stand-in whose commit, branch, and merge request calls
+ * record their arguments and track which branches exist.
  */
 function fakeRepos(root: string) {
   const state = { branches: new Set<string>(), changeError: undefined as Error | undefined }
   const conflict = (branch: string) => Object.assign(new Error(`分支 ${branch} 已存在`), { name: 'RepoError', code: 'conflict' })
-  const service = Object.assign(Object.create(createRepos(root)) as ReturnType<typeof createRepos>, {
+  const service = Object.assign(Object.create(new FakeRepos(root)) as FakeRepos, {
     getBranch: vi.fn(async (_repo: string, name: string) => state.branches.has(name) ? { name, commit: 'f'.repeat(40), protected: false, default: false } : undefined),
     commitFiles: vi.fn(async (_repo: string, request: Record<string, unknown> & { branch: string }) => {
       if (state.branches.has(request.branch)) throw conflict(request.branch)
@@ -117,7 +117,7 @@ async function setup(): Promise<Setup> {
     repos: [{ url: origin }],
     skillUpdates: { enabled: true, maxFiles: 4, maxFileBytes: 65536 },
   }
-  const repos = fakeRepos(join(root, 'dsh-repo'))
+  const repos = fakeRepos(join(root, 'mirrors'))
   const registry = new RepoRegistry({ repos: () => repos.service, onChange: () => {} })
   registry.configure(settings.repos)
   await registry.syncAll()
@@ -181,7 +181,7 @@ describe('logalyze_propose_skill', () => {
     const [request] = approval.requests
     expect(request).toMatchObject({ agent, toolName: 'logalyze_propose_skill', callId: 'call-1', signal: exec.signal })
     expect(request?.displayReason?.zh).toContain(`提交新分支 ${rejected.branch}，并创建合并请求合入 main`)
-    expect(request?.displayReason?.zh).toContain('.dsh/skills/log-analysis/references/formats.md（+1 −0）')
+    expect(request?.displayReason?.zh).toContain('.agents/skills/log-analysis/references/formats.md（+1 −0）')
     expect(request?.displayReason?.zh).toContain('理由：日志格式里漏了 traceId 字段')
 
     answer.value = 'allowed-once'
@@ -194,7 +194,7 @@ describe('logalyze_propose_skill', () => {
       baseSha: task.commit,
       newBranch: true,
       author: { name: '观象', email: 'logalyze@example.com' },
-      files: [{ action: 'write', path: '.dsh/skills/log-analysis/references/formats.md', content: '第四列是 traceId\n' }],
+      files: [{ action: 'write', path: '.agents/skills/log-analysis/references/formats.md', content: '第四列是 traceId\n' }],
       signal: exec.signal,
     })
     expect(commit.message).toMatch(new RegExp(`^补充 traceId 字段说明\\n\\n日志格式里漏了 traceId 字段\\n\\nProposed-by: 观象 Logalyze\\nAnalyzed-commit: ${task.commit}\\nSession: parent\\n$`))

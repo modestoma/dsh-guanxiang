@@ -1,5 +1,5 @@
 /**
- * 应用仓库内 `.dsh/logalyze.yaml` 应用描述的解析与校验，以及对应日志分析
+ * 应用仓库内 `.agents/logalyze.yaml` 应用描述的解析与校验，以及对应日志分析
  * SKILL 的存在性检查。
  *
  * @module dsh-logalyze/repos/manifest
@@ -13,7 +13,7 @@ import { describeIssue } from '../config.ts'
 import type { AppManifest } from '../settings/contract.ts'
 
 /** Manifest path relative to the repository root. */
-export const MANIFEST_PATH = '.dsh/logalyze.yaml'
+export const MANIFEST_PATH = '.agents/logalyze.yaml'
 
 /** Kebab-case identifier, the same rule DSH applies to skill names. */
 export const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -35,12 +35,22 @@ export type ManifestRead =
   | { readonly ok: false; readonly error: string }
 
 /**
- * Relative path of an application's analysis skill.
+ * Repository-relative directory of an application's analysis skill, which DSH
+ * discovers as a project skill.
  * @param skill - skill name.
- * @returns `.dsh/skills/<skill>/SKILL.md`.
+ * @returns `.agents/skills/<skill>`.
+ */
+export function skillDir(skill: string): string {
+  return `.agents/skills/${skill}`
+}
+
+/**
+ * Repository-relative path of an application's analysis skill.
+ * @param skill - skill name.
+ * @returns `.agents/skills/<skill>/SKILL.md`.
  */
 export function skillPath(skill: string): string {
-  return join('.dsh', 'skills', skill, 'SKILL.md')
+  return `${skillDir(skill)}/SKILL.md`
 }
 
 /**

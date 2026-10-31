@@ -1,34 +1,34 @@
-import { access, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { RepoRegistry } from '../src/repos/registry.ts'
 import { MANIFEST_PATH } from '../src/repos/manifest.ts'
-import { commitFile, createAppRepo, createRepos, git, tempDir, waitFor } from './helpers.ts'
+import { FakeRepos, repoError } from './fake-repos.ts'
+import { commitFile, createAppRepo, git, tempDir } from './helpers.ts'
 
 const cleanups: (() => Promise<void>)[] = []
-const exists = (path: string): Promise<boolean> => access(path).then(() => true, () => false)
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => cleanup())) })
 
-async function setup(): Promise<{ root: string; registry: RepoRegistry; repos: { value: unknown }; changes: () => number; now: { value: number } }> {
+async function setup(): Promise<{ root: string; registry: RepoRegistry; fake: FakeRepos; repos: { value: unknown }; changes: () => number; now: { value: number } }> {
   const { dir, cleanup } = await tempDir()
   cleanups.push(cleanup)
   let changes = 0
   const now = { value: 1_000_000 }
-  const repos: { value: unknown } = { value: createRepos(join(dir, 'dsh-repo')) }
+  const fake = new FakeRepos(join(dir, 'mirrors'))
+  const repos: { value: unknown } = { value: fake }
   const registry = new RepoRegistry({ repos: () => repos.value, onChange: () => { changes += 1 }, now: () => now.value })
-  return { root: dir, registry, repos, changes: () => changes, now }
+  return { root: dir, registry, fake, repos, changes: () => changes, now }
 }
 
 describe('repository registry', () => {
   it('clones a repository and exposes its application', async () => {
-    const { root, registry } = await setup()
+    const { root, registry, fake } = await setup()
     const origin = await createAppRepo(join(root, 'origin'))
     registry.configure([{ url: origin }])
     expect(registry.status()[0]?.phase).toBe('pending')
     await registry.syncAll()
     const [status] = registry.status()
-    expect(status).toMatchObject({ url: origin, phase: 'ready', available: true, activeRuns: 0 })
-    expect(status?.dir?.startsWith(join(root, 'dsh-repo', 'mirrors', 'local', 'origin-'))).toBe(true)
+    expect(status).toMatchObject({ url: origin, phase: 'ready', available: true, activeRuns: 0, dir: fake.mirrorDir(origin) })
     expect(status?.commit).toBe(git(origin, 'rev-parse', 'HEAD').trim())
     expect(registry.readyApps().map(app => app.app.id)).toEqual(['order-service'])
   })
@@ -74,7 +74,7 @@ describe('repository registry', () => {
     git(origin, '-c', 'user.name=t', '-c', 'user.email=t@e', 'commit', '-qm', 'init')
     registry.configure([{ url: origin }])
     await registry.syncAll()
-    expect(registry.status()[0]).toMatchObject({ phase: 'failed', available: false, error: '仓库缺少应用描述 .dsh/logalyze.yaml' })
+    expect(registry.status()[0]).toMatchObject({ phase: 'failed', available: false, error: '仓库缺少应用描述 .agents/logalyze.yaml' })
     expect(registry.readyApps()).toEqual([])
   })
 
@@ -86,7 +86,7 @@ describe('repository registry', () => {
     expect(registry.status()[0]?.error).toContain('同步镜像')
   })
 
-  it('reports a missing dsh-repo and syncs once it appears', async () => {
+  it('reports a missing dshRepos service and syncs once it appears', async () => {
     const { root, registry, repos } = await setup()
     const origin = await createAppRepo(join(root, 'origin'))
     const service = repos.value
@@ -117,8 +117,8 @@ describe('repository registry', () => {
     expect(registry.status()[0]?.error).toContain('同时出现在')
   })
 
-  it('updates the catalog while a lease holds an unchanged snapshot, then deletes the old snapshot', async () => {
-    const { root, registry } = await setup()
+  it('updates the catalog while a lease holds an unchanged snapshot, and releases each snapshot once', async () => {
+    const { root, registry, fake } = await setup()
     const origin = await createAppRepo(join(root, 'origin'))
     registry.configure([{ url: origin }])
     await registry.syncAll()
@@ -127,7 +127,6 @@ describe('repository registry', () => {
     const lease = await registry.acquire(['order-service'])
     const held = lease.apps.get('order-service')
     expect(held).toMatchObject({ commit: first, url: origin })
-    expect(held?.dir.startsWith(join(root, 'dsh-repo', 'mirrors', '.snapshots', 'local'))).toBe(true)
     expect(git(held!.dir, 'rev-parse', 'HEAD').trim()).toBe(first)
     expect(registry.status()[0]?.activeRuns).toBe(1)
 
@@ -141,16 +140,14 @@ describe('repository registry', () => {
     const next = await registry.acquire(['order-service'])
     expect(next.apps.get('order-service')?.commit).toBe(head)
     expect(next.apps.get('order-service')?.dir).not.toBe(held?.dir)
+    expect(fake.heldSnapshots()).toBe(2)
     lease.release()
     lease.release()
-    await waitFor(async () => !await exists(held!.dir))
+    expect(fake.heldSnapshots()).toBe(1)
     expect(registry.status()[0]?.activeRuns).toBe(1)
     next.release()
-    await new Promise(resolve => setTimeout(resolve, 50))
-    expect(await exists(next.apps.get('order-service')!.dir)).toBe(true)
-    const again = await registry.acquire(['order-service'])
-    expect(again.apps.get('order-service')?.dir).toBe(next.apps.get('order-service')?.dir)
-    again.release()
+    expect(fake.heldSnapshots()).toBe(0)
+    expect(registry.status()[0]?.activeRuns).toBe(0)
   })
 
   it('refreshes only repositories whose last sync is old enough', async () => {
@@ -171,7 +168,7 @@ describe('repository registry', () => {
   it('reports a manifest that is a symbolic link as unreadable', async () => {
     const { root, registry } = await setup()
     const origin = await createAppRepo(join(root, 'origin'))
-    await rename(join(origin, MANIFEST_PATH), join(origin, '.dsh', 'real.yaml'))
+    await rename(join(origin, MANIFEST_PATH), join(origin, '.agents', 'real.yaml'))
     await symlink('real.yaml', join(origin, MANIFEST_PATH))
     git(origin, 'add', '-A')
     git(origin, 'commit', '-qm', 'link')
@@ -181,18 +178,19 @@ describe('repository registry', () => {
   })
 
   it('releases every application when a snapshot cannot be created', async () => {
-    const { root, registry } = await setup()
+    const { root, registry, fake } = await setup()
     const origin = await createAppRepo(join(root, 'origin'))
-    registry.configure([{ url: origin }])
+    const second = await createAppRepo(join(root, 'pay'), { '.agents/logalyze.yaml': 'id: pay-service\nname: 支付服务\ndescription: 支付\nskill: log-analysis\n' })
+    registry.configure([{ url: origin }, { url: second }])
     await registry.syncAll()
-    await mkdir(join(root, 'dsh-repo', 'mirrors'), { recursive: true })
-    await writeFile(join(root, 'dsh-repo', 'mirrors', '.snapshots'), 'not a directory')
-    await expect(registry.acquire(['order-service'])).rejects.toThrow('应用「order-service」的代码快照创建失败')
-    expect(registry.status()[0]?.activeRuns).toBe(0)
-    await rm(join(root, 'dsh-repo', 'mirrors', '.snapshots'))
+    fake.snapshotError = repoError('unavailable', '检出失败')
+    await expect(registry.acquire(['order-service', 'pay-service'])).rejects.toThrow('应用「order-service」的代码快照创建失败：检出失败')
+    expect(registry.status().map(repo => repo.activeRuns)).toEqual([0, 0])
+    fake.snapshotError = undefined
     const lease = await registry.acquire(['order-service'])
-    expect(await exists(lease.apps.get('order-service')!.dir)).toBe(true)
+    expect(lease.apps.get('order-service')?.commit).toBe(registry.status()[0]?.commit)
     lease.release()
+    expect(fake.heldSnapshots()).toBe(0)
   })
 
   it('rejects unknown application ids with the available ones', async () => {

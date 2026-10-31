@@ -56,7 +56,7 @@ function cell(text: string): string {
  */
 export function renderCatalog(apps: readonly AppManifest[]): string {
   if (apps.length === 0) {
-    return '当前没有可用的应用。请告诉用户：在 DSH Web 左侧栏「观象」面板的「应用仓库」中添加应用的 git 地址，并确认仓库已拉取成功、包含 `.dsh/logalyze.yaml` 与对应的日志分析 SKILL。然后结束本次回复，不要自行分析日志。'
+    return '当前没有可用的应用。请告诉用户：在 DSH Web 左侧栏「观象」面板的「应用仓库」中添加应用的 git 地址，并确认仓库已拉取成功、包含 `.agents/logalyze.yaml` 与对应的日志分析 SKILL。然后结束本次回复，不要自行分析日志。'
   }
   const rows = apps.map(app => `| \`${app.id}\` | ${cell(app.name)} | ${cell(app.description)} | ${cell(app.aliases.join('、') || '—')} | ${cell(app.logHints.map(hint => `\`${hint}\``).join(' ') || '—')} |`)
   return ['| 应用 id | 名称 | 描述 | 别名 | 日志特征 |', '| --- | --- | --- | --- | --- |', ...rows].join('\n')

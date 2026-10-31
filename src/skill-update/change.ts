@@ -8,7 +8,7 @@
 
 import { createHash } from 'node:crypto'
 import { createTwoFilesPatch, structuredPatch } from 'diff'
-import type { DshRepoService } from 'dsh-repo/contract'
+import type { DshRepos } from '../repos/contract.ts'
 import type { ProposedFile } from './proposal.ts'
 
 /** Line counts of one changed file. */
@@ -47,7 +47,7 @@ export interface ChangeTarget {
  * @returns per-file line counts, the diff, and the digest; `files` is empty when nothing changes.
  * @throws when a proposed path replaces a symbolic link, a submodule, or a directory, or the mirror cannot be read.
  */
-export async function prepareChange(repos: DshRepoService, target: ChangeTarget, files: readonly ProposedFile[], signal?: AbortSignal): Promise<PreparedChange> {
+export async function prepareChange(repos: DshRepos, target: ChangeTarget, files: readonly ProposedFile[], signal?: AbortSignal): Promise<PreparedChange> {
   const { url, base, skillDir } = target
   const listing = await repos.listMirrorTree(url, base, skillDir, signal === undefined ? {} : { signal })
   const types = new Map(listing.map(entry => [entry.path, entry.type]))

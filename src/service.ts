@@ -5,7 +5,7 @@
  * @module dsh-logalyze/service
  */
 
-import type { DshRepoService } from 'dsh-repo/contract'
+import type { DshRepos } from './repos/contract.ts'
 import { z } from 'zod'
 import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema } from './config.ts'
 import type { LogalyzeConfig, SettingsOverlay } from './config.ts'
@@ -197,7 +197,7 @@ export class LogalyzeService {
    * @param repos - the `dshRepos` service.
    * @returns disposer that stops watching.
    */
-  watchHosts(repos: DshRepoService): () => void {
+  watchHosts(repos: DshRepos): () => void {
     return repos.onHostsChange(() => {
       if (!this.active) return
       void this.registry.resyncAll().catch((error: unknown) => {

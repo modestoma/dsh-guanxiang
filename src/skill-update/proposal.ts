@@ -1,7 +1,7 @@
 /**
  * 子 Agent 写在运行目录里的 SKILL 修改提议：`skill-proposal/reason.md` 说明
  * 理由，`skill-proposal/files/` 按相对路径存放应用 SKILL 目录
- * `.dsh/skills/<skill>/` 下要新增或修改的完整文件。
+ * `.agents/skills/<skill>/` 下要新增或修改的完整文件。
  *
  * 运行目录对 Agent 可写，所以这里读到的一切都按不可信输入校验：只接受普通
  * 文件和目录（不跟随符号链接）、受限的文件名、UTF-8 文本、文件数与大小上限。
@@ -20,7 +20,7 @@ export const PROPOSAL_DIR = 'skill-proposal'
 /** Reason file inside {@link PROPOSAL_DIR}. */
 export const REASON_FILE = 'reason.md'
 
-/** Directory inside {@link PROPOSAL_DIR} mirroring `.dsh/skills/<skill>/`. */
+/** Directory inside {@link PROPOSAL_DIR} mirroring `.agents/skills/<skill>/`. */
 export const FILES_DIR = 'files'
 
 /** Diff the plugin writes next to the proposal, for the user to read. */

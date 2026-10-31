@@ -13,7 +13,7 @@
  * @module dsh-logalyze/repos/registry
  */
 
-import type { DshRepoService, SnapshotLease } from 'dsh-repo/contract'
+import type { DshRepos, SnapshotLease } from './contract.ts'
 import type { AppManifest, RepoSpec, RepoStatusWire } from '../settings/contract.ts'
 import { messageOf, requireRepos } from './lookup.ts'
 import { checkAppManifest } from './manifest.ts'
@@ -279,7 +279,7 @@ export class RepoRegistry {
 
   private async runSync(entry: RepoEntry): Promise<void> {
     if (entry.retired) return
-    let service: DshRepoService
+    let service: DshRepos
     let head: { dir: string; branch: string; commit: string; commitTime: string }
     try {
       service = requireRepos(this.deps.repos())

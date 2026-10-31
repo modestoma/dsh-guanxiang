@@ -81,7 +81,7 @@ export const EDITABLE_KEYS = ['repos', 'fetchIntervalMs', 'maxAppsPerRequest', '
 /** One editable key. */
 export type EditableKey = (typeof EDITABLE_KEYS)[number]
 
-/** Application description read from `<repo>/.dsh/logalyze.yaml`. */
+/** Application description read from `<repo>/.agents/logalyze.yaml`. */
 export interface AppManifest {
   /** Registry id the dispatch tool and analysis requests address. */
   id: string
@@ -93,7 +93,7 @@ export interface AppManifest {
   aliases: string[]
   /** Strings that identify this application's log lines (tags, process names, class names). */
   logHints: string[]
-  /** Project skill name under `.dsh/skills/<skill>/SKILL.md` that analyzes this application's logs. */
+  /** Project skill name under `.agents/skills/<skill>/SKILL.md` that analyzes this application's logs. */
   skill: string
 }
 
