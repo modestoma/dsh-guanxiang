@@ -4,11 +4,13 @@
  * - 只接受本进程中由同一会话派发过的任务运行目录；应用、仓库和分析时的提交
  *   取自派发记录，不取自运行目录里可被 Agent 改写的内容。
  * - 只改应用 SKILL 目录 `.dsh/skills/<skill>/` 下的文件，提交以分析时的提交为
- *   父提交，推送到新分支 `guanxiang/skill-<应用 id>-<树对象前缀>`，从不推送已有
- *   分支或默认分支。
- * - 推送前经 DSH 审批服务（`ctx.approval`）请求一次性授权；dsh_channels 把它
- *   显示为飞书决策卡片，DSH Web 显示为审批提示。只有 `allowed-once` 才推送；
- *   没有审批服务时工具报错，不推送。
+ *   父提交，提交到新分支 `guanxiang/skill-<应用 id>-<树对象前缀>`，从不提交到
+ *   已有分支或默认分支。
+ * - 提交和创建合并请求经 dsh-repo 的 `dshRepos` 服务完成，支持 GitLab 与
+ *   GitHub；令牌由 dsh-repo 按主机配置。没有该服务或版本不符时工具报错。
+ * - 提交前经 DSH 审批服务（`ctx.approval`）请求一次性授权；dsh_channels 把它
+ *   显示为飞书决策卡片，DSH Web 显示为审批提示。只有 `allowed-once` 才提交；
+ *   没有审批服务时工具报错，不提交。
  * - 子会话中不提供本工具。
  *
  * @module dsh-guanxiang/skill-update/tool
@@ -17,6 +19,7 @@
 import { randomBytes } from 'node:crypto'
 import { rename, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import type { CommitAuthor } from 'dsh-repo/contract'
 import { z } from 'zod'
 import { describeIssue } from '../config.ts'
 import { isDelegatedAgent } from '../dispatch/tool.ts'
@@ -24,9 +27,11 @@ import type { ContentBlock, HostApproval, ToolDefinition, ToolRunContext } from 
 import type { GitRunner } from '../repos/git.ts'
 import type { RepoRegistry } from '../repos/registry.ts'
 import type { AppManifest, EditableSettings } from '../settings/contract.ts'
-import { commitChange, prepareChange, pushForMergeRequest, remoteBranchExists } from './git.ts'
-import type { CommitAuthor, FileStat, PreparedChange } from './git.ts'
+import { prepareChange } from './git.ts'
+import type { FileStat, PreparedChange } from './git.ts'
 import { DIFF_FILE, FILES_DIR, PROPOSAL_DIR, ProposalError, readProposal, REASON_FILE } from './proposal.ts'
+import type { ProposedFile } from './proposal.ts'
+import { DSH_REPOS_SERVICE, DSH_REPOS_VERSION, lookupRepos, repoErrorCode } from './repos.ts'
 
 /** Model-facing tool name. */
 export const PROPOSE_TOOL_NAME = 'guanxiang_propose_skill'
@@ -69,7 +74,7 @@ export interface ProposeValue {
   status: ProposeStatus
   app: string
   repo: string
-  /** New branch the change was or would be pushed to. */
+  /** New branch the change was or would be committed to. */
   branch: string
   /** Branch the merge request targets. */
   target: string
@@ -77,6 +82,8 @@ export interface ProposeValue {
   /** Diff file in the task's run directory. */
   diffPath: string
   mergeRequestUrl?: string
+  /** Why the merge request was not created; only with `pushed`. */
+  mergeRequestError?: string
 }
 
 const argsSchema = z.object({
@@ -115,6 +122,7 @@ const OUTPUT_SCHEMA = {
     files: { type: 'array', items: FILE_STAT_SCHEMA },
     diffPath: { type: 'string' },
     mergeRequestUrl: { type: 'string' },
+    mergeRequestError: { type: 'string' },
   },
 } as const
 
@@ -135,12 +143,12 @@ export function describeFiles(files: readonly FileStat[]): string {
 export function renderProposeValue(value: ProposeValue): ContentBlock[] {
   const where = `${value.repo} 的分支 ${value.branch}（目标 ${value.target}）`
   const text = {
-    opened: `已推送到 ${where} 并创建合并请求：${value.mergeRequestUrl ?? ''}`,
-    pushed: `已推送到 ${where}，但服务器没有返回合并请求链接；请在 GitLab 上确认合并请求是否已创建。`,
-    exists: `${where} 已存在，同一改动可能已经提交过，本次没有推送。`,
-    rejected: '授权被拒绝，没有推送：用户拒绝了这次修改，或会话的审批策略为 never（例如「完全访问」权限模式）。',
-    cancelled: '授权请求被撤回，没有推送。',
-    unavailable: '当前没有可以回答授权请求的界面，没有推送。',
+    opened: `已提交到 ${where} 并创建合并请求：${value.mergeRequestUrl ?? ''}`,
+    pushed: `已提交到 ${where}，但创建合并请求失败（${value.mergeRequestError ?? '未知原因'}）；请在代码托管平台上从该分支手动创建。`,
+    exists: `${where} 已存在，同一改动可能已经提交过，本次没有提交。`,
+    rejected: '授权被拒绝，没有提交：用户拒绝了这次修改，或会话的审批策略为 never（例如「完全访问」权限模式）。',
+    cancelled: '授权请求被撤回，没有提交。',
+    unavailable: '当前没有可以回答授权请求的界面，没有提交。',
   }[value.status]
   return [{ type: 'text', text: `${text}\n改动：${describeFiles(value.files)}\ndiff：${value.diffPath}` }]
 }
@@ -154,6 +162,8 @@ export interface SkillUpdaterDeps {
   readonly author?: CommitAuthor
   /** DSH's approval service, when the composition has one. */
   approval(): HostApproval | undefined
+  /** What `ctx.get('dshRepos')` returns now. */
+  repos(): unknown
 }
 
 function messageOf(error: unknown): string {
@@ -223,7 +233,7 @@ export class SkillUpdater {
    * @returns undefined when the task wrote no proposal.
    * @throws ProposalError or a git failure.
    */
-  private async prepare(task: DispatchedTask): Promise<{ reason: string; change: PreparedChange; target: string; diffPath: string } | undefined> {
+  private async prepare(task: DispatchedTask): Promise<{ reason: string; files: readonly ProposedFile[]; change: PreparedChange; target: string; diffPath: string } | undefined> {
     const proposal = await readProposal(task.workDir, this.deps.settings().skillUpdates)
     if (proposal === undefined) return undefined
     const commands = { git: this.deps.git, timeoutMs: this.deps.gitTimeoutMs }
@@ -234,7 +244,7 @@ export class SkillUpdater {
     if (change.files.length === 0) throw new ProposalError(`提议的文件与提交 ${task.commit.slice(0, 12)} 中的 SKILL 相同，没有改动`)
     const diffPath = join(task.workDir, DIFF_FILE)
     await replaceFile(diffPath, change.diff)
-    return { reason: proposal.reason, change, target, diffPath }
+    return { reason: proposal.reason, files: proposal.files, change, target, diffPath }
   }
 
   /**
@@ -244,7 +254,7 @@ export class SkillUpdater {
   definition(): ToolDefinition<ProposeValue> {
     return {
       name: PROPOSE_TOOL_NAME,
-      description: '观象：把派发结果中某个应用的 SKILL 修改提议提交为合并请求。工具先请求用户授权，批准后推送新分支并创建合并请求，不会直接改动默认分支。'
+      description: '观象：把派发结果中某个应用的 SKILL 修改提议提交为合并请求。工具先请求用户授权，批准后提交到新分支并创建合并请求，不会直接改动默认分支。'
         + '仅在派发结果标出了 SKILL 修改提议时使用；不要自己用 git 推送。',
       parameters: PARAMETERS,
       output: {
@@ -261,7 +271,7 @@ export class SkillUpdater {
    * @param rawArgs - model arguments.
    * @param exec - execution context of the calling agent.
    * @returns how the submission ended.
-   * @throws when the arguments, task, proposal, or approval service are unusable, or git fails; nothing is pushed then.
+   * @throws when the arguments, task, proposal, approval service, or `dshRepos` service are unusable, or the commit fails; nothing is committed then.
    */
   async execute(rawArgs: unknown, exec: ToolRunContext): Promise<ProposeValue> {
     const parsed = argsSchema.safeParse(rawArgs)
@@ -275,22 +285,26 @@ export class SkillUpdater {
     if (task === undefined) throw new Error(`${parsed.data.workDir} 不是本次 DSH 运行中观象派发任务的运行目录；DSH 重启后需要重新分析`)
     if (task.sessionId !== agent.session.header.id) throw new Error(`${parsed.data.workDir} 不是当前会话派发的任务`)
     const approval = this.deps.approval()
-    if (approval === undefined) throw new Error('当前 DSH 组合没有审批服务（@deepseek-ai/dsh-user-approval），观象不会在未经授权时推送')
+    if (approval === undefined) throw new Error('当前 DSH 组合没有审批服务（@deepseek-ai/dsh-user-approval），观象不会在未经授权时提交')
+    const lookup = lookupRepos(this.deps.repos())
+    if (lookup.availability !== 'ready') {
+      throw new Error(lookup.availability === 'missing'
+        ? `提交 SKILL 修改需要 dsh-repo 插件提供的 ${DSH_REPOS_SERVICE} 服务；请安装 dsh-repo，并在它的 hosts 中配置该应用仓库所在的主机和令牌`
+        : `dsh-repo 的 ${DSH_REPOS_SERVICE} 服务与观象不兼容（观象需要服务版本 ${DSH_REPOS_VERSION} 且提供 getBranch，即 dsh-repo 0.1.0-beta.2 及以上）；请升级 dsh-repo`)
+    }
+    const repos = lookup.service
 
     const prepared = await this.prepare(task)
     if (prepared === undefined) throw new Error(`${task.workDir} 中没有 SKILL 修改提议（${PROPOSAL_DIR}/${REASON_FILE} 与 ${PROPOSAL_DIR}/${FILES_DIR}/）`)
     const { change, target, diffPath, reason } = prepared
     const branch = `guanxiang/skill-${task.app.id}-${change.tree.slice(0, 10)}`
     const base = { app: task.app.id, repo: task.url, branch, target, files: [...change.files], diffPath }
-    const commands = { git: this.deps.git, timeoutMs: this.deps.gitTimeoutMs }
 
-    if (await this.deps.registry.withClone(task.url, clone => remoteBranchExists(commands, clone.dir, branch, clone.env))) {
-      return { ...base, status: 'exists' }
-    }
+    if (await repos.getBranch(task.url, branch, { signal: exec.signal }) !== undefined) return { ...base, status: 'exists' }
 
     const preview = reason.replace(/\s+/g, ' ').slice(0, REASON_PREVIEW_CHARS)
-    const zh = `观象将向 ${task.url} 推送新分支 ${branch}，并创建合并请求合入 ${target}。改动：${describeFiles(change.files)}。摘要：${summary}。理由：${preview}`
-    const en = `GuanXiang will push branch ${branch} to ${task.url} and open a merge request into ${target}. Files: ${change.files.map(file => file.path).join(', ')}. Summary: ${summary}`
+    const zh = `观象将在 ${task.url} 提交新分支 ${branch}，并创建合并请求合入 ${target}。改动：${describeFiles(change.files)}。摘要：${summary}。理由：${preview}`
+    const en = `GuanXiang will commit branch ${branch} to ${task.url} and open a merge request into ${target}. Files: ${change.files.map(file => file.path).join(', ')}. Summary: ${summary}`
     const outcome = await approval.request({
       agent,
       toolName: PROPOSE_TOOL_NAME,
@@ -304,11 +318,32 @@ export class SkillUpdater {
 
     const message = `${summary}\n\n${reason}\n\nProposed-by: 观象 GuanXiang\nAnalyzed-commit: ${task.commit}\nSession: ${task.sessionId}\n`
     const description = `由观象在日志分析中提出（应用 ${task.app.id}，分析提交 ${task.commit.slice(0, 12)}，会话 ${task.sessionId}）。理由：${reason.slice(0, REASON_DESCRIPTION_CHARS)}`
-    const url = await this.deps.registry.withClone(task.url, async (clone) => {
-      exec.signal.throwIfAborted()
-      const commit = await commitChange(commands, clone.dir, change, message, this.deps.author)
-      return await pushForMergeRequest(commands, clone.dir, commit, branch, { target, title: summary, description }, clone.env)
-    })
-    return url === undefined ? { ...base, status: 'pushed' } : { ...base, status: 'opened', mergeRequestUrl: url }
+    // Only files that differ from the analyzed commit; an unchanged one would be an empty update.
+    const changed = new Set(change.files.map(file => file.path))
+    const files = prepared.files
+      .map(file => ({ action: 'write' as const, path: `${skillDirOf(task.app)}/${file.path}`, content: file.content }))
+      .filter(file => changed.has(file.path))
+    exec.signal.throwIfAborted()
+    try {
+      await repos.commitFiles(task.url, {
+        branch,
+        baseSha: task.commit,
+        newBranch: true,
+        message,
+        files,
+        ...this.deps.author === undefined ? {} : { author: this.deps.author },
+        signal: exec.signal,
+      })
+    } catch (error) {
+      if (repoErrorCode(error) === 'conflict') return { ...base, status: 'exists' }
+      throw error
+    }
+    try {
+      const opened = await repos.createChange(task.url, { title: summary, body: description, sourceBranch: branch, targetBranch: target, signal: exec.signal })
+      return { ...base, status: 'opened', mergeRequestUrl: opened.webUrl }
+    } catch (error) {
+      // The branch exists now; report it so the user can open the request by hand.
+      return { ...base, status: 'pushed', mergeRequestError: messageOf(error) }
+    }
   }
 }

@@ -55,14 +55,12 @@ export interface LeasedApp extends ReadyApp {
   readonly dir: string
 }
 
-/** A clone opened for writing objects and pushing; see {@link RepoRegistry.withClone}. */
+/** A clone opened for writing objects; see {@link RepoRegistry.withClone}. */
 export interface CloneAccess {
   /** Fetch-only clone directory. */
   readonly dir: string
   /** The configured branch, or the remote's default branch when none is configured. */
   readonly branch: string
-  /** Environment for network commands of this address, such as an access token. */
-  readonly env: Readonly<Record<string, string>>
 }
 
 /** Held snapshots of one dispatch; release exactly once. */
@@ -374,7 +372,7 @@ export class RepoRegistry {
       if (entry.retired) throw new Error(`仓库 ${url} 已不在配置中`)
       const env = await this.deps.auth?.(url) ?? {}
       const branch = entry.spec.branch ?? (await this.remoteHead(entry.dir, env)).replace(/^refs\/remotes\/origin\//, '')
-      return await task({ dir: entry.dir, branch, env })
+      return await task({ dir: entry.dir, branch })
     })
   }
 

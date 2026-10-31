@@ -595,7 +595,7 @@ function AdvancedTab({ draft, setDraft, overridden, busy, onReset }: TabProps & 
           <div className="gx__row">
             <div className="gx__rowText">
               <div className="gx__rowLabel">允许提出 SKILL 修改 <Overridden keys={overridden} name="skillUpdates" /></div>
-              <div className="gx__rowSummary">子 Agent 发现应用的日志分析 SKILL 有欠缺时可以写出修改提议；经用户授权后，观象用访问令牌把它推送到新分支并创建合并请求（GitLab，令牌需要 write_repository 权限）。</div>
+              <div className="gx__rowSummary">子 Agent 发现应用的日志分析 SKILL 有欠缺时可以写出修改提议；经用户授权后，观象经 dsh-repo 把它提交到新分支并创建合并请求（GitLab 或 GitHub，需要安装 dsh-repo 并配置该仓库主机的令牌）。</div>
             </div>
             <div className="gx__rowCtl"><input type="checkbox" className="gx__check" aria-label="允许提出 SKILL 修改" checked={draft.skillUpdatesEnabled} onChange={(event) => { setDraft({ ...draft, skillUpdatesEnabled: event.target.checked }) }} /></div>
           </div>

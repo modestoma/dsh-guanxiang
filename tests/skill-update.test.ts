@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -10,7 +10,7 @@ import type { EditableSettings } from '../src/settings/contract.ts'
 import { DIFF_FILE, readProposal } from '../src/skill-update/proposal.ts'
 import { renderProposeValue, SkillUpdater } from '../src/skill-update/tool.ts'
 import type { DispatchedTask } from '../src/skill-update/tool.ts'
-import { createAppRepo, git, tempDir } from './helpers.ts'
+import { createAppRepo, tempDir } from './helpers.ts'
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => cleanup())) })
@@ -18,6 +18,7 @@ afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => clea
 const LIMITS = { maxFiles: 4, maxFileBytes: 4096 }
 const SKILL = '.dsh/skills/log-analysis/SKILL.md'
 const MR_URL = 'https://gitlab.example.com/group/order-service/-/merge_requests/7'
+const NEW_SKILL = '---\nname: log-analysis\ndescription: 新版\n---\n\n# 新版\n'
 
 async function dir(): Promise<string> {
   const { dir: path, cleanup } = await tempDir()
@@ -74,22 +75,24 @@ describe('readProposal', () => {
   })
 })
 
-/** An application repository whose pre-receive hook records push options and prints a merge request URL. */
-async function gitlabLikeOrigin(root: string): Promise<string> {
-  const origin = await createAppRepo(join(root, 'order-service'))
-  git(origin, 'config', 'receive.advertisePushOptions', 'true')
-  const hook = join(origin, '.git', 'hooks', 'pre-receive')
-  await writeFile(hook, `#!/bin/sh
-i=0
-while [ "$i" -lt "\${GIT_PUSH_OPTION_COUNT:-0}" ]; do
-  eval "printf '%s\\\\n' \\"\\$GIT_PUSH_OPTION_$i\\"" >> "$GIT_DIR/push-options.log"
-  i=$((i + 1))
-done
-echo "View merge request for the branch:"
-echo "  ${MR_URL}"
-`)
-  await chmod(hook, 0o755)
-  return origin
+/** A `dshRepos` stand-in that records commits and merge requests and tracks which branches exist. */
+function fakeRepos() {
+  const state = { branches: new Set<string>(), changeError: undefined as Error | undefined }
+  const conflict = (branch: string) => Object.assign(new Error(`分支 ${branch} 已存在`), { name: 'RepoError', code: 'conflict' })
+  const service = {
+    version: 1,
+    getBranch: vi.fn(async (_repo: string, name: string) => state.branches.has(name) ? { name, commit: 'f'.repeat(40), protected: false, default: false } : undefined),
+    commitFiles: vi.fn(async (_repo: string, request: Record<string, unknown> & { branch: string }) => {
+      if (state.branches.has(request.branch)) throw conflict(request.branch)
+      state.branches.add(request.branch)
+      return { sha: 'c'.repeat(40), branch: request.branch, createdBranch: true }
+    }),
+    createChange: vi.fn(async () => {
+      if (state.changeError !== undefined) throw state.changeError
+      return { number: 7, webUrl: MR_URL }
+    }),
+  }
+  return { state, service }
 }
 
 interface Setup {
@@ -101,11 +104,12 @@ interface Setup {
   agent: Agent
   approval: { requests: ApprovalRequest[]; request: Mock<HostApproval['request']> }
   answer: { value: ApprovalOutcome }
+  repos: ReturnType<typeof fakeRepos>
 }
 
 async function setup(): Promise<Setup> {
   const root = await dir()
-  const origin = await gitlabLikeOrigin(root)
+  const origin = await createAppRepo(join(root, 'order-service'))
   const settings: EditableSettings = {
     ...defaultsOf(resolveConfig({}), { DSH_HOME: root }),
     repos: [{ url: origin }],
@@ -118,6 +122,7 @@ async function setup(): Promise<Setup> {
   const answer: Setup['answer'] = { value: 'allowed-once' }
   const requests: ApprovalRequest[] = []
   const approval = { requests, request: vi.fn(async (req: ApprovalRequest) => { requests.push(req); return answer.value }) }
+  const repos = fakeRepos()
   const updater = new SkillUpdater({
     registry,
     settings: () => settings,
@@ -125,12 +130,13 @@ async function setup(): Promise<Setup> {
     gitTimeoutMs: 30_000,
     author: { name: '观象', email: 'guanxiang@example.com' },
     approval: () => approval,
+    repos: () => repos.service,
   })
   const workDir = join(root, 'project', '.guanxiang', 'runs', 'r1', '1-order-service')
   await mkdir(workDir, { recursive: true })
   const task: DispatchedTask = { workDir, sessionId: 'parent', app: ready!.app, url: origin, commit: ready!.commit }
   const agent: Agent = { id: 'parent', session: { header: { id: 'parent', cwd: join(root, 'project') } } }
-  return { origin, registry, task, updater, settings, agent, approval, answer }
+  return { origin, registry, task, updater, settings, agent, approval, answer, repos }
 }
 
 describe('guanxiang_propose_skill', () => {
@@ -159,9 +165,10 @@ describe('guanxiang_propose_skill', () => {
     expect(await readFile(join(task.workDir, DIFF_FILE), 'utf8')).toContain('+# 新版')
   })
 
-  it('pushes a new branch and opens a merge request only after the user allows it', async () => {
-    const { origin, task, updater, agent, approval, answer } = await setup()
-    await writeProposal(task.workDir, { 'SKILL.md': '---\nname: log-analysis\ndescription: 新版\n---\n\n# 新版\n' })
+  it('commits the changed files to a new branch at the analyzed commit and opens a merge request only after the user allows it', async () => {
+    const { origin, task, updater, agent, approval, answer, repos } = await setup()
+    const skill = await readFile(join(origin, SKILL), 'utf8')
+    await writeProposal(task.workDir, { 'SKILL.md': skill, 'references/formats.md': '第四列是 traceId\n' })
     await updater.inspect(task)
     const exec = { signal: new AbortController().signal, agent, callId: 'call-1' }
     const args = { workDir: task.workDir, summary: '补充 traceId 字段说明' }
@@ -170,23 +177,34 @@ describe('guanxiang_propose_skill', () => {
     const rejected = await updater.execute(args, exec)
     expect(rejected.status).toBe('rejected')
     expect(rejected.branch).toMatch(/^guanxiang\/skill-order-service-[0-9a-f]{10}$/)
-    expect(git(origin, 'branch', '--list', 'guanxiang/*').trim()).toBe('')
+    expect(repos.service.commitFiles).not.toHaveBeenCalled()
     const [request] = approval.requests
     expect(request).toMatchObject({ agent, toolName: 'guanxiang_propose_skill', callId: 'call-1', signal: exec.signal })
-    expect(request?.displayReason?.zh).toContain(`推送新分支 ${rejected.branch}，并创建合并请求合入 main`)
-    expect(request?.displayReason?.zh).toContain(`${SKILL}（+`)
+    expect(request?.displayReason?.zh).toContain(`提交新分支 ${rejected.branch}，并创建合并请求合入 main`)
+    expect(request?.displayReason?.zh).toContain('.dsh/skills/log-analysis/references/formats.md（+1 −0）')
     expect(request?.displayReason?.zh).toContain('理由：日志格式里漏了 traceId 字段')
 
     answer.value = 'allowed-once'
     const opened = await updater.execute(args, exec)
     expect(opened).toMatchObject({ status: 'opened', mergeRequestUrl: MR_URL, branch: rejected.branch, target: 'main', repo: origin })
-    expect(git(origin, 'show', `${opened.branch}:${SKILL}`)).toBe('---\nname: log-analysis\ndescription: 新版\n---\n\n# 新版\n')
-    expect(git(origin, 'rev-parse', `${opened.branch}^`).trim()).toBe(task.commit)
-    expect(git(origin, 'log', '-1', '--format=%an <%ae>%n%s', opened.branch).trim()).toBe('观象 <guanxiang@example.com>\n补充 traceId 字段说明')
-    expect(git(origin, 'diff', '--name-only', task.commit, opened.branch).trim()).toBe(SKILL)
-    const options = (await readFile(join(origin, '.git', 'push-options.log'), 'utf8')).trim().split('\n')
-    expect(options.slice(0, 3)).toEqual(['merge_request.create', 'merge_request.target=main', 'merge_request.title=补充 traceId 字段说明'])
-    expect(options[3]).toMatch(/^merge_request\.description=由观象在日志分析中提出（应用 order-service，分析提交 [0-9a-f]{12}，会话 parent）。理由：日志格式里漏了 traceId 字段$/)
+    const [repo, commit] = repos.service.commitFiles.mock.calls[0]!
+    expect(repo).toBe(origin)
+    expect(commit).toMatchObject({
+      branch: opened.branch,
+      baseSha: task.commit,
+      newBranch: true,
+      author: { name: '观象', email: 'guanxiang@example.com' },
+      files: [{ action: 'write', path: '.dsh/skills/log-analysis/references/formats.md', content: '第四列是 traceId\n' }],
+      signal: exec.signal,
+    })
+    expect(commit.message).toMatch(new RegExp(`^补充 traceId 字段说明\\n\\n日志格式里漏了 traceId 字段\\n\\nProposed-by: 观象 GuanXiang\\nAnalyzed-commit: ${task.commit}\\nSession: parent\\n$`))
+    expect(repos.service.createChange).toHaveBeenCalledWith(origin, {
+      title: '补充 traceId 字段说明',
+      body: expect.stringMatching(/^由观象在日志分析中提出（应用 order-service，分析提交 [0-9a-f]{12}，会话 parent）。理由：日志格式里漏了 traceId 字段$/),
+      sourceBranch: opened.branch,
+      targetBranch: 'main',
+      signal: exec.signal,
+    })
     expect(renderProposeValue(opened)[0]?.text).toContain(MR_URL)
 
     // The same change again finds the branch and does not ask.
@@ -195,8 +213,19 @@ describe('guanxiang_propose_skill', () => {
     expect(approval.request).toHaveBeenCalledTimes(2)
   })
 
-  it('refuses tasks it did not dispatch for this session, and pushes nothing without an approval service', async () => {
-    const { registry, task, updater, agent, settings } = await setup()
+  it('reports a committed branch whose merge request could not be created', async () => {
+    const { task, updater, agent, repos } = await setup()
+    await writeProposal(task.workDir, { 'SKILL.md': NEW_SKILL })
+    await updater.inspect(task)
+    repos.state.changeError = Object.assign(new Error('令牌没有权限'), { name: 'RepoError', code: 'forbidden' })
+    const value = await updater.execute({ workDir: task.workDir, summary: '改写' }, { signal: new AbortController().signal, agent })
+    expect(value).toMatchObject({ status: 'pushed', mergeRequestError: '令牌没有权限' })
+    expect(value.mergeRequestUrl).toBeUndefined()
+    expect(renderProposeValue(value)[0]?.text).toContain('创建合并请求失败（令牌没有权限）')
+  })
+
+  it('refuses tasks it did not dispatch for this session, and commits nothing without an approval or dshRepos service', async () => {
+    const { registry, task, updater, agent, settings, repos } = await setup()
     await writeProposal(task.workDir, { 'SKILL.md': '# 新版\n' })
     const exec = { signal: new AbortController().signal, agent }
     const args = { workDir: task.workDir, summary: '改写' }
@@ -209,27 +238,36 @@ describe('guanxiang_propose_skill', () => {
     await expect(updater.execute(args, exec)).rejects.toThrow('未开启')
     settings.skillUpdates = { ...settings.skillUpdates, enabled: true }
 
-    const withoutApproval = new SkillUpdater({ registry, settings: () => settings, git: runGit, gitTimeoutMs: 30_000, approval: () => undefined })
+    const deps = { registry, settings: () => settings, git: runGit, gitTimeoutMs: 30_000 }
+    const withoutApproval = new SkillUpdater({ ...deps, approval: () => undefined, repos: () => repos.service })
     await withoutApproval.inspect(task)
     await expect(withoutApproval.execute(args, exec)).rejects.toThrow('没有审批服务')
+    const approval = { request: vi.fn(async () => 'allowed-once' as const) }
+    const withoutRepos = new SkillUpdater({ ...deps, approval: () => approval, repos: () => undefined })
+    await withoutRepos.inspect(task)
+    await expect(withoutRepos.execute(args, exec)).rejects.toThrow('需要 dsh-repo 插件提供的 dshRepos 服务')
+    const olderRepos = new SkillUpdater({ ...deps, approval: () => approval, repos: () => ({ ...repos.service, getBranch: undefined }) })
+    await olderRepos.inspect(task)
+    await expect(olderRepos.execute(args, exec)).rejects.toThrow('服务与观象不兼容')
+    expect(approval.request).not.toHaveBeenCalled()
+    expect(repos.service.commitFiles).not.toHaveBeenCalled()
   })
 
-  it('never updates a branch that appeared while the user was deciding', async () => {
-    const { origin, task, updater, agent, approval } = await setup()
+  it('never commits onto a branch that appeared while the user was deciding', async () => {
+    const { task, updater, agent, approval, repos } = await setup()
     await writeProposal(task.workDir, { 'SKILL.md': '# 新版\n' })
     await updater.inspect(task)
     approval.request.mockImplementationOnce(async (req: ApprovalRequest) => {
-      const branch = /推送新分支 (\S+)，/.exec(req.reason ?? '')?.[1] as string
-      git(origin, 'branch', branch, task.commit)
+      repos.state.branches.add(/提交新分支 (\S+)，/.exec(req.reason ?? '')?.[1] as string)
       return 'allowed-once'
     })
-    await expect(updater.execute({ workDir: task.workDir, summary: '改写' }, { signal: new AbortController().signal, agent })).rejects.toThrow(/\[rejected\] \(stale info\)/)
-    const [branch] = git(origin, 'branch', '--list', 'guanxiang/*', '--format=%(refname:short)').trim().split('\n')
-    expect(git(origin, 'rev-parse', branch!).trim()).toBe(task.commit)
+    const value = await updater.execute({ workDir: task.workDir, summary: '改写' }, { signal: new AbortController().signal, agent })
+    expect(value.status).toBe('exists')
+    expect(repos.service.createChange).not.toHaveBeenCalled()
   })
 
   it('stops when the approval request is withdrawn by cancellation', async () => {
-    const { task, updater, agent, answer, origin } = await setup()
+    const { task, updater, agent, answer, repos } = await setup()
     await writeProposal(task.workDir, { 'SKILL.md': '# 新版\n' })
     await updater.inspect(task)
     const controller = new AbortController()
@@ -238,6 +276,6 @@ describe('guanxiang_propose_skill', () => {
     await expect(updater.execute({ workDir: task.workDir, summary: '改写' }, { signal: controller.signal, agent })).rejects.toThrow('turn cancelled')
     answer.value = 'unavailable'
     expect((await updater.execute({ workDir: task.workDir, summary: '改写' }, { signal: new AbortController().signal, agent })).status).toBe('unavailable')
-    expect(git(origin, 'branch', '--list', 'guanxiang/*').trim()).toBe('')
+    expect(repos.service.commitFiles).not.toHaveBeenCalled()
   })
 })
