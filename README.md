@@ -64,7 +64,7 @@
 - **代码快照不可变。** 子 Agent 在 `<reposDir>/.snapshots/<仓库名>/` 下按提交创建的 `git worktree` 快照里工作。快照创建后不再改动，同一提交的派发共用一份；没有分析在用、且已不是最新提交的快照会被删除。
 - **运行目录。** 每次派发在父会话目录下创建 `.guanxiang/runs/<runId>/<序号>-<应用 id>/`，下载的日志放在这里，子 Agent 也只在这里写文件；应用仓库对子 Agent 只读。
 - **等待式派发。** 工具等待所有子 Agent 结束后一次返回，一条消息对应一张完整回复；超过派发超时或调用被取消时停止仍在运行的子 Agent。子会话中不提供派发工具。
-- **SKILL 改进（可选，默认关闭）。** 子 Agent 发现应用的日志分析 SKILL 有欠缺时，可以在运行目录写出修改提议；经用户授权后，观象把它推送到应用仓库的新分支并创建合并请求，见 [SKILL 改进](#skill-改进)。
+- **SKILL 改进（可选，默认关闭）。** 子 Agent 发现应用的日志分析 SKILL 有欠缺时，可以在运行目录写出修改提议；经用户授权后，观象经 [dsh-repo](https://github.com/modestoma/dsh-repo) 把它提交到应用仓库的新分支并创建合并请求（GitLab MR 或 GitHub PR），见 [SKILL 改进](#skill-改进)。
 
 ## 安装与配置
 
@@ -114,7 +114,7 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
       enabled: false                   # 默认关闭
       maxFiles: 16                     # 一次提议最多新增或修改的文件数
       maxFileBytes: 262144             # 提议中单个文件的大小上限
-    skillUpdateAuthor:                 # 可选：SKILL 改进提交的作者；省略时使用本机 git 的 user.name / user.email
+    skillUpdateAuthor:                 # 可选：SKILL 改进提交的作者；省略时是 dsh-repo 中该主机令牌的主人
       name: 观象
       email: guanxiang@example.com
     analyze:                           # 日志平台分析接口，见下文
@@ -126,7 +126,7 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
 
 ### 访问令牌
 
-用 https 地址拉取 GitLab 等私有仓库时，可以配置个人访问令牌（GitLab 需要 `read_repository` 权限；开启 [SKILL 改进](#skill-改进) 时需要 `write_repository`）：
+用 https 地址拉取 GitLab 等私有仓库时，可以配置个人访问令牌（GitLab 需要 `read_repository` 权限；[SKILL 改进](#skill-改进) 的提交改由 dsh-repo 的令牌完成，这里不需要写权限）：
 
 - **配置只写名称。** `gitCredentials` 的每一项把一个地址前缀（`https://主机[:端口][/路径]`）对应到一个令牌名称 `tokenEnv`；地址在前缀下的 https 仓库使用该令牌，多个前缀匹配时取路径最长的。ssh、`user@host:path` 和本地路径不受影响。
 - **令牌值在 DSH 凭据库。** 令牌通过 DSH 的 `ctx.credentials` 读取（默认组合加载的 `@deepseek-ai/dsh-credentials-local`，文件 `$DSH_HOME/.credentials.yaml`，仅本机用户可读），可以在设置面板的「访问令牌」分页保存，也可以设置同名环境变量或写进 `.env`。每次拉取都重新读取，更换令牌不用重启。面板接口只接受已保存的配置引用的名称，也从不返回令牌值。
@@ -174,19 +174,19 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 
 ## SKILL 改进
 
-开启 `skillUpdates.enabled`（设置面板「高级」→「SKILL 改进」）后，分析中发现的 SKILL 欠缺可以经用户授权后提交为合并请求：
+开启 `skillUpdates.enabled`（设置面板「高级」→「SKILL 改进」）后，分析中发现的 SKILL 欠缺可以经用户授权后提交为合并请求。提交和创建合并请求经 [dsh-repo](https://github.com/modestoma/dsh-repo) 的 `dshRepos` 服务完成（需要 dsh-repo 0.1.0-beta.2 及以上）：需要同时安装 dsh-repo，并在它的 `hosts` 中配置应用仓库所在的主机和令牌；没有该服务或版本不符时工具报错。
 
 1. **子 Agent 写提议。** 子 Agent 的任务消息多出一节说明：把要改的文件从 `.dsh/skills/<skill>/` 复制到运行目录的 `skill-proposal/files/`（保持相对路径）后修改，理由写进 `skill-proposal/reason.md`。仓库对子 Agent 仍然只读。
 2. **派发结果标出提议。** 派发结束后，观象检查已完成任务的提议：只接受普通文件和受限的文件名、UTF-8 文本、文件数与大小上限，`SKILL.md` 不能设置 `user-invocable: false`。合格的提议在结果中给出改动行数，并在运行目录写出 `skill-proposal.diff`；不合格的给出原因。
 3. **父 Agent 展示并提交。** 入口 SKILL 让父 Agent 在汇总回复后附上改动和 diff，再调用 `guanxiang_propose_skill`（参数为任务的运行目录和一句话摘要）。只接受本次 DSH 运行中由同一会话派发过的任务；应用、仓库和分析时的提交取自派发记录。
-4. **请求授权。** 工具通过 DSH 的审批服务（`ctx.approval`，`@deepseek-ai/dsh-user-approval`）请求一次性授权，说明将推送的仓库、分支、目标分支、改动文件和理由。经 dsh_channels 使用时显示为飞书决策卡片，在 DSH Web 中显示为审批提示；观象与 dsh_channels 之间没有代码依赖。只有「允许」才推送；拒绝、撤回或没有可回答的界面时都不推送。会话的审批策略为 `never`（例如 DSH 的「完全访问」权限模式）时请求一律被拒绝，所以要在「询问」类权限模式下使用；DSH 组合没有审批服务时工具报错。
-5. **推送新分支并创建合并请求。** 观象进程（不是 Agent）在拉取仓库中以分析时的提交为父提交生成提交，只改 `.dsh/skills/<skill>/` 下的文件，不动任何检出和快照；然后推送到新分支 `guanxiang/skill-<应用 id>-<树对象前缀>`，用 GitLab push options（`merge_request.create`、`merge_request.target`、`merge_request.title`、`merge_request.description`）创建合入跟踪分支的合并请求，返回服务器给出的合并请求链接。同一改动的分支已存在时不再请求授权，也不推送。从不推送已有分支或默认分支，合并由仓库的评审流程决定；合并后下次 `/guanxiang` 拉取即生效。
+4. **请求授权。** 工具通过 DSH 的审批服务（`ctx.approval`，`@deepseek-ai/dsh-user-approval`）请求一次性授权，说明将提交的仓库、分支、目标分支、改动文件和理由。经 dsh_channels 使用时显示为飞书决策卡片，在 DSH Web 中显示为审批提示；观象与 dsh_channels 之间没有代码依赖。只有「允许」才提交；拒绝、撤回或没有可回答的界面时都不提交。会话的审批策略为 `never`（例如 DSH 的「完全访问」权限模式）时请求一律被拒绝，所以要在「询问」类权限模式下使用；DSH 组合没有审批服务时工具报错。
+5. **提交新分支并创建合并请求。** 观象进程（不是 Agent）经 `dshRepos` 以分析时的提交为起点建新分支 `guanxiang/skill-<应用 id>-<树对象前缀>`，提交 `.dsh/skills/<skill>/` 下有改动的文件，再创建合入跟踪分支的合并请求，返回它的链接。同一改动的分支已存在时不再请求授权，也不提交；等待授权期间分支被别人建出时同样不提交。从不提交到已有分支或默认分支，合并由仓库的评审流程决定；合并后下次 `/guanxiang` 拉取即生效。提交成功但合并请求创建失败时，工具返回分支和失败原因，可以在代码托管平台上手动创建。
 
 注意：
 
-- 只支持 GitLab：不支持 push options 的服务器会拒绝这次推送。https 仓库的令牌需要 `write_repository`（不需要 `api`）；ssh 地址使用本机的 SSH key。
-- 个人访问令牌加了写权限后，可以推送你有权限的所有项目。建议改用只覆盖应用仓库的项目或组访问令牌，设置过期时间，并保护应用仓库的默认分支。
-- 合并请求以令牌主人的身份创建，提交作者是 `skillUpdateAuthor` 或本机 git 身份。飞书群里点「允许」的人可能不是令牌主人；合并请求描述写明了来源会话与分析提交。
+- 支持 GitLab（包括自建实例）和 GitHub。应用仓库的 git 地址（https、ssh 或 `user@host:path`）要能被 dsh-repo 识别为已配置主机上的仓库；dsh-repo 的令牌在 GitLab 上需要 `api` 权限，在 GitHub 上需要 Contents 和 Pull requests 的读写权限。
+- 有写权限的令牌可以改动它能访问的所有项目。建议用只覆盖应用仓库的项目或组访问令牌，设置过期时间，用 dsh-repo 的 `repos` 限定范围，并保护应用仓库的默认分支。
+- 合并请求以 dsh-repo 令牌主人的身份创建，提交作者是 `skillUpdateAuthor`，省略时也是令牌主人。飞书群里点「允许」的人可能不是令牌主人；合并请求描述写明了来源会话与分析提交。
 - 日志内容不可信，可能诱导模型写出不当的 SKILL。观象只限制改动范围，内容需要授权的人和合并请求的评审者把关。
 
 ## 日志平台分析接口

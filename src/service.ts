@@ -22,6 +22,7 @@ import type { AnalyzeWire, CredentialsWire, EditableSettings, StateWire, TokenSt
 import { diffOverlay, overriddenKeys } from './settings/overlay.ts'
 import type { OverlayStore } from './settings/overlay.ts'
 import { createEntrySkillProvider } from './skill/entry.ts'
+import { DSH_REPOS_SERVICE } from './skill-update/repos.ts'
 import { SkillUpdater } from './skill-update/tool.ts'
 
 /** A settings write the panel reports as a field error. */
@@ -83,6 +84,7 @@ export class GuanxiangService {
       gitTimeoutMs: config.gitTimeoutMs,
       ...config.skillUpdateAuthor === undefined ? {} : { author: config.skillUpdateAuthor },
       approval: () => ctx.get?.('approval') as HostApproval | undefined,
+      repos: () => ctx.get?.(DSH_REPOS_SERVICE),
     })
     this.dispatcher = new Dispatcher({
       registry: this.registry,

@@ -5,8 +5,8 @@
  * 任务匹配已注册应用时由顶层 Agent 自行加载）和
  * `guanxiang_dispatch` 工具（按应用派发子 Agent，工作目录为该应用的代码
  * 仓库，首条消息用 `/<skill>` 加载仓库里的日志分析 SKILL），以及开启 SKILL
- * 改进时的 `guanxiang_propose_skill` 工具（经用户授权后把子 Agent 的 SKILL
- * 修改提议推送到新分支并创建合并请求）。应用仓库在设置
+ * 改进时的 `guanxiang_propose_skill` 工具（经用户授权后经 dsh-repo 把子 Agent
+ * 的 SKILL 修改提议提交到新分支并创建合并请求）。应用仓库在设置
  * 面板中只填 git 地址，由插件拉取；应用描述来自各仓库的
  * `.dsh/guanxiang.yaml`。另提供日志平台分析接口 `POST /open-api/logalyze`，
  * 经 dsh-channels 的 `feishuTopics` 服务在飞书群话题中开始分析。

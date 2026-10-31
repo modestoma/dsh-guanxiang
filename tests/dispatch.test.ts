@@ -66,7 +66,7 @@ async function setup(overrides: Partial<EditableSettings> = {}, proposals = fals
   registry.configure(settings.reposDir, settings.repos)
   await registry.syncAll()
   const { service, started } = fakeSubagents()
-  const updater = new SkillUpdater({ registry, settings: () => settings, git: runGit, gitTimeoutMs: 30_000, approval: () => undefined })
+  const updater = new SkillUpdater({ registry, settings: () => settings, git: runGit, gitTimeoutMs: 30_000, approval: () => undefined, repos: () => undefined })
   const dispatcher = new Dispatcher({
     registry,
     ...proposals ? { proposals: updater } : {},

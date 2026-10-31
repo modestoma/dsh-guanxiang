@@ -137,8 +137,8 @@ const configSchema = z.object({
    */
   analyzeTokenRef: z.string().trim().regex(TOKEN_ENV_PATTERN, '令牌名称只能包含字母、数字和下划线，且不能以数字开头').default('GUANXIANG_ANALYZE_TOKEN'),
   /**
-   * Author and committer of SKILL improvement commits; omitted uses the git
-   * identity configured on the host (`user.name` / `user.email`).
+   * Author of SKILL improvement commits; omitted uses the user of the token
+   * dsh-repo holds for the repository's host, who is always the committer.
    */
   skillUpdateAuthor: authorSchema.optional(),
   /** Registered `ctx.subagents` provider the children start on. */

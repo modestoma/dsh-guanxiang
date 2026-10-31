@@ -1,7 +1,7 @@
 /**
- * 在拉取仓库中用 git 底层命令生成 SKILL 修改的提交并推送：用临时索引文件
- * 在分析时的提交上替换文件、写出树对象，不改动任何检出、快照或本地分支；
- * 推送时用 GitLab push options 顺带创建合并请求。
+ * 在拉取仓库中用 git 底层命令检查 SKILL 修改：用临时索引文件在分析时的提交上
+ * 替换文件、写出树对象，算出逐文件行数和 diff，不改动任何检出、快照或本地
+ * 分支。树对象的前缀用作新分支名，提交本身经 dsh-repo 完成。
  *
  * @module dsh-guanxiang/skill-update/git
  */
@@ -35,19 +35,6 @@ export interface PreparedChange {
 export interface GitCommands {
   readonly git: GitRunner
   readonly timeoutMs: number
-}
-
-/** Author and committer of a commit. */
-export interface CommitAuthor {
-  readonly name: string
-  readonly email: string
-}
-
-/** Merge request fields sent as GitLab push options. */
-export interface MergeRequestOptions {
-  readonly target: string
-  readonly title: string
-  readonly description: string
 }
 
 const DIFF_FLAGS = ['--no-color', '--no-ext-diff', '--no-renames']
@@ -94,64 +81,4 @@ export async function prepareChange(commands: GitCommands, dir: string, base: st
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
-}
-
-/**
- * Whether the remote already has a branch.
- * @param commands - git runner and timeout.
- * @param dir - clone directory.
- * @param branch - branch name.
- * @param env - network environment of the clone's address.
- * @returns whether `refs/heads/<branch>` exists on `origin`.
- */
-export async function remoteBranchExists(commands: GitCommands, dir: string, branch: string, env: Readonly<Record<string, string>>): Promise<boolean> {
-  const output = await commands.git(['ls-remote', '--heads', 'origin', `refs/heads/${branch}`], { cwd: dir, timeoutMs: commands.timeoutMs, env })
-  return output.trim() !== ''
-}
-
-/**
- * Commit a prepared tree on its base commit without touching any ref.
- * @param commands - git runner and timeout.
- * @param dir - clone directory.
- * @param change - prepared tree and its base.
- * @param message - full commit message.
- * @param author - explicit identity; omitted uses the host's git configuration.
- * @returns the new commit id.
- */
-export async function commitChange(commands: GitCommands, dir: string, change: PreparedChange, message: string, author: CommitAuthor | undefined): Promise<string> {
-  const env = author === undefined
-    ? undefined
-    : { GIT_AUTHOR_NAME: author.name, GIT_AUTHOR_EMAIL: author.email, GIT_COMMITTER_NAME: author.name, GIT_COMMITTER_EMAIL: author.email }
-  const output = await commands.git(['commit-tree', change.tree, '-p', change.base, '-F', '-'], { cwd: dir, timeoutMs: commands.timeoutMs, input: message, ...env === undefined ? {} : { env } })
-  return output.trim()
-}
-
-/** Push options cannot carry line breaks; collapse every whitespace run. */
-function oneLine(text: string): string {
-  return text.replace(/\s+/g, ' ').trim()
-}
-
-/**
- * Push a commit to a new remote branch and ask GitLab to open a merge request
- * for it (`merge_request.*` push options). The push carries an empty lease on
- * the branch, so it fails instead of updating a branch that appeared after
- * {@link remoteBranchExists} was checked. A server that does not support push
- * options rejects the push.
- * @param commands - git runner and timeout.
- * @param dir - clone directory.
- * @param commit - commit to push.
- * @param branch - new branch name.
- * @param request - merge request target and text.
- * @param env - network environment of the clone's address.
- * @returns the merge request URL the server printed, if any.
- */
-export async function pushForMergeRequest(commands: GitCommands, dir: string, commit: string, branch: string, request: MergeRequestOptions, env: Readonly<Record<string, string>>): Promise<string | undefined> {
-  const options = [
-    'merge_request.create',
-    `merge_request.target=${request.target}`,
-    `merge_request.title=${oneLine(request.title)}`,
-    `merge_request.description=${oneLine(request.description)}`,
-  ].flatMap(option => ['-o', option])
-  const output = await commands.git(['push', '--porcelain', `--force-with-lease=refs/heads/${branch}:`, ...options, 'origin', `${commit}:refs/heads/${branch}`], { cwd: dir, timeoutMs: commands.timeoutMs, env, output: 'all' })
-  return /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(output)?.[0]
 }
