@@ -24,11 +24,13 @@ import { describeIssue } from '../config.ts'
 import { isDelegatedAgent } from '../dispatch/tool.ts'
 import type { ContentBlock, HostApproval, ToolDefinition, ToolRunContext } from '../host.ts'
 import type { CommitAuthor } from '../repos/contract.ts'
-import { messageOf, repoErrorCode, requireRepos } from '../repos/lookup.ts'
+import { messageOf, requireRepos } from '../repos/lookup.ts'
 import { skillDir } from '../repos/manifest.ts'
 import type { RepoRegistry } from '../repos/registry.ts'
 import type { AppManifest, EditableSettings } from '../settings/contract.ts'
 import { prepareChange } from './change.ts'
+import { submitChange } from './commit.ts'
+import type { SubmitStatus } from './commit.ts'
 import type { FileStat, PreparedChange } from './change.ts'
 import { DIFF_FILE, FILES_DIR, PROPOSAL_DIR, ProposalError, readProposal, REASON_FILE } from './proposal.ts'
 import type { ProposedFile } from './proposal.ts'
@@ -67,7 +69,7 @@ export type ProposalCheck =
   | { readonly ok: false; readonly error: string }
 
 /** How one submission ended. */
-export type ProposeStatus = 'opened' | 'pushed' | 'exists' | 'rejected' | 'cancelled' | 'unavailable'
+export type ProposeStatus = SubmitStatus
 
 /** Canonical tool value. */
 export interface ProposeValue {
@@ -227,7 +229,7 @@ export class SkillUpdater {
     const proposal = await readProposal(task.workDir, this.deps.settings().skillUpdates)
     if (proposal === undefined) return undefined
     const target = this.deps.registry.branchOf(task.url)
-    const change = await prepareChange(requireRepos(this.deps.repos()), { url: task.url, base: task.commit, skillDir: skillDir(task.app.skill) }, proposal.files, signal)
+    const change = await prepareChange(requireRepos(this.deps.repos()), { url: task.url, base: task.commit, dir: skillDir(task.app.skill) }, proposal.files, signal)
     if (change.files.length === 0) throw new ProposalError(`提议的文件与提交 ${task.commit.slice(0, 12)} 中的 SKILL 相同，没有改动`)
     const diffPath = join(task.workDir, DIFF_FILE)
     await replaceFile(diffPath, change.diff)
@@ -287,50 +289,31 @@ export class SkillUpdater {
     const branch = `logalyze/skill-${task.app.id}-${change.digest.slice(0, 10)}`
     const base = { app: task.app.id, repo: task.url, branch, target, files: [...change.files], diffPath }
 
-    if (await repos.getBranch(task.url, branch, { signal: exec.signal }) !== undefined) return { ...base, status: 'exists' }
-
     const preview = reason.replace(/\s+/g, ' ').slice(0, REASON_PREVIEW_CHARS)
-    const zh = `观象将在 ${task.url} 提交新分支 ${branch}，并创建合并请求合入 ${target}。改动：${describeFiles(change.files)}。摘要：${summary}。理由：${preview}`
-    const en = `Logalyze will commit branch ${branch} to ${task.url} and open a merge request into ${target}. Files: ${change.files.map(file => file.path).join(', ')}. Summary: ${summary}`
-    const outcome = await approval.request({
-      agent,
-      toolName: PROPOSE_TOOL_NAME,
-      ...exec.callId === undefined ? {} : { callId: exec.callId },
-      reason: zh,
-      displayReason: { en, zh },
-      signal: exec.signal,
-    })
-    if (outcome === 'cancelled') exec.signal.throwIfAborted()
-    if (outcome !== 'allowed-once') return { ...base, status: outcome }
-
-    const message = `${summary}\n\n${reason}\n\nProposed-by: 观象 Logalyze\nAnalyzed-commit: ${task.commit}\nSession: ${task.sessionId}\n`
-    const description = `由观象在日志分析中提出（应用 ${task.app.id}，分析提交 ${task.commit.slice(0, 12)}，会话 ${task.sessionId}）。理由：${reason.slice(0, REASON_DESCRIPTION_CHARS)}`
     // Only files that differ from the analyzed commit; an unchanged one would be an empty update.
     const changed = new Set(change.files.map(file => file.path))
-    const files = prepared.files
-      .map(file => ({ action: 'write' as const, path: `${skillDir(task.app.skill)}/${file.path}`, content: file.content }))
-      .filter(file => changed.has(file.path))
-    exec.signal.throwIfAborted()
-    try {
-      await repos.commitFiles(task.url, {
-        branch,
-        baseSha: task.commit,
-        newBranch: true,
-        message,
-        files,
-        ...this.deps.author === undefined ? {} : { author: this.deps.author },
-        signal: exec.signal,
-      })
-    } catch (error) {
-      if (repoErrorCode(error) === 'conflict') return { ...base, status: 'exists' }
-      throw error
-    }
-    try {
-      const opened = await repos.createChange(task.url, { title: summary, body: description, sourceBranch: branch, targetBranch: target, signal: exec.signal })
-      return { ...base, status: 'opened', mergeRequestUrl: opened.webUrl }
-    } catch (error) {
-      // The branch exists now; report it so the user can open the request by hand.
-      return { ...base, status: 'pushed', mergeRequestError: messageOf(error) }
-    }
+    const outcome = await submitChange({
+      repos,
+      approval,
+      agent,
+      exec,
+      toolName: PROPOSE_TOOL_NAME,
+      url: task.url,
+      base: task.commit,
+      branch,
+      target,
+      files: prepared.files
+        .map(file => ({ action: 'write' as const, path: `${skillDir(task.app.skill)}/${file.path}`, content: file.content }))
+        .filter(file => changed.has(file.path)),
+      message: `${summary}\n\n${reason}\n\nProposed-by: 观象 Logalyze\nAnalyzed-commit: ${task.commit}\nSession: ${task.sessionId}\n`,
+      title: summary,
+      body: `由观象在日志分析中提出（应用 ${task.app.id}，分析提交 ${task.commit.slice(0, 12)}，会话 ${task.sessionId}）。理由：${reason.slice(0, REASON_DESCRIPTION_CHARS)}`,
+      ...this.deps.author === undefined ? {} : { author: this.deps.author },
+      prompt: {
+        zh: `观象将在 ${task.url} 提交新分支 ${branch}，并创建合并请求合入 ${target}。改动：${describeFiles(change.files)}。摘要：${summary}。理由：${preview}`,
+        en: `Logalyze will commit branch ${branch} to ${task.url} and open a merge request into ${target}. Files: ${change.files.map(file => file.path).join(', ')}. Summary: ${summary}`,
+      },
+    })
+    return { ...base, ...outcome }
   }
 }

@@ -1,6 +1,6 @@
 /**
  * 观象运行时：持有生效设置（cordis.yml + 面板覆盖）、应用注册表、入口
- * SKILL、派发工具与 SKILL 提议工具的注册，并为设置面板提供状态与写入口。
+ * SKILL、派发工具、SKILL 提议工具与仓库接入工具的注册，并为设置面板提供状态与写入口。
  *
  * @module dsh-logalyze/service
  */
@@ -17,11 +17,13 @@ import type { HostApproval, HostContext, HostCredentials, ToolActivationContext,
 import { DSH_REPOS_SERVICE, lookupRepos, messageOf } from './repos/lookup.ts'
 import { RepoRegistry } from './repos/registry.ts'
 import { ANALYZE_ROUTE } from './settings/contract.ts'
-import type { AnalyzeWire, EditableSettings, ReposWire, StateWire, TokenStatusWire } from './settings/contract.ts'
+import type { AnalyzeWire, EditableSettings, RepoSpec, ReposWire, StateWire, TokenStatusWire } from './settings/contract.ts'
 import { diffOverlay, overriddenKeys } from './settings/overlay.ts'
 import type { OverlayStore } from './settings/overlay.ts'
 import { createEntrySkillProvider } from './skill/entry.ts'
 import { SkillUpdater } from './skill-update/tool.ts'
+import { RepoAdder } from './onboard/add.ts'
+import { RepoInitializer } from './onboard/init.ts'
 
 /** A settings write the panel reports as a field error. */
 export class SettingsError extends Error {}
@@ -48,6 +50,8 @@ export class LogalyzeService {
   private current: EditableSettings
   private readonly dispatcher: Dispatcher
   private readonly updater: SkillUpdater
+  private readonly adder: RepoAdder
+  private readonly initializer: RepoInitializer
   private readonly skill: ReturnType<typeof createEntrySkillProvider>
   private active = true
   private readonly refreshWaitMs: number
@@ -90,6 +94,22 @@ export class LogalyzeService {
       workingDirectory: () => ctx.get?.('workingDirectory') as WorkingDirectoryService | undefined,
       ...options.fetch === undefined ? {} : { fetch: options.fetch },
     })
+    this.adder = new RepoAdder({
+      registry: this.registry,
+      approval: () => ctx.get?.('approval') as HostApproval | undefined,
+      addRepo: spec => this.addRepo(spec),
+    })
+    this.initializer = new RepoInitializer({
+      registry: this.registry,
+      subagents: ctx.subagents,
+      provider: config.subagentProvider,
+      settings: () => this.current,
+      workingDirectory: () => ctx.get?.('workingDirectory') as WorkingDirectoryService | undefined,
+      approval: () => ctx.get?.('approval') as HostApproval | undefined,
+      repos: () => ctx.get?.(DSH_REPOS_SERVICE),
+      ...config.skillUpdateAuthor === undefined ? {} : { author: config.skillUpdateAuthor },
+      ...options.fetch === undefined ? {} : { fetch: options.fetch },
+    })
     this.skill = createEntrySkillProvider({
       prepare: signal => this.prepareCatalog(signal),
       apps: () => this.registry.readyApps().map(ready => ready.app),
@@ -109,9 +129,9 @@ export class LogalyzeService {
   }
 
   /**
-   * Register the dispatch and SKILL proposal tools; called once from
-   * `apply()`. The definitions stay fixed because a step drops a tool whose
-   * registration changed after the step resolved its tools.
+   * Register the dispatch, SKILL proposal, and repository onboarding tools;
+   * called once from `apply()`. The definitions stay fixed because a step
+   * drops a tool whose registration changed after the step resolved its tools.
    */
   registerTool(): void {
     this.ctx.effect(
@@ -122,18 +142,41 @@ export class LogalyzeService {
       () => this.ctx.tools.register(this.updater.definition(), { when: async context => this.current.skillUpdates.enabled && await this.offersTool(context) }),
       'logalyze: skill proposal tool',
     )
+    this.ctx.effect(
+      () => this.ctx.tools.register(this.adder.definition(), { when: context => this.offersTopLevel(context, () => true) }),
+      'logalyze: add repository tool',
+    )
+    this.ctx.effect(
+      () => this.ctx.tools.register(this.initializer.initDefinition(), { when: context => this.offersTopLevel(context, () => this.registry.setupPending().length > 0) }),
+      'logalyze: draft repository setup tool',
+    )
+    this.ctx.effect(
+      () => this.ctx.tools.register(this.initializer.submitDefinition(), { when: context => this.offersTopLevel(context, () => this.initializer.hasDraft(context.agent.session.header.id)) }),
+      'logalyze: submit repository setup tool',
+    )
   }
 
   /**
-   * Offer the tool to top-level agents once the first sync settled and at
-   * least one application is usable.
+   * Offer a tool to top-level agents once the first sync settled and the
+   * tool's own condition holds.
+   * @param context - the preparing step.
+   * @param condition - the tool's condition, read after the first sync.
+   * @returns whether the step may call the tool.
+   */
+  private async offersTopLevel({ agent, signal }: ToolActivationContext, condition: () => boolean): Promise<boolean> {
+    if (isDelegatedAgent(agent)) return false
+    await abortable(this.booted.promise, signal)
+    return this.active && condition()
+  }
+
+  /**
+   * Offer the dispatch and proposal tools to top-level agents once the first
+   * sync settled and at least one application is usable.
    * @param context - the preparing step.
    * @returns whether the step may call the tool.
    */
-  private async offersTool({ agent, signal }: ToolActivationContext): Promise<boolean> {
-    if (isDelegatedAgent(agent)) return false
-    await abortable(this.booted.promise, signal)
-    return this.active && this.registry.readyApps().length > 0
+  private async offersTool(context: ToolActivationContext): Promise<boolean> {
+    return await this.offersTopLevel(context, () => this.registry.readyApps().length > 0)
   }
 
   /**
@@ -316,6 +359,19 @@ export class LogalyzeService {
     await this.store.write(overlay)
     this.apply(overlay)
     return await this.state()
+  }
+
+  /**
+   * Append one repository to the panel settings, as a panel save would, and
+   * start syncing it.
+   * @param spec - validated repository.
+   * @returns `exists` without writing when the address is already configured.
+   * @throws SettingsError when the resulting settings are invalid.
+   */
+  async addRepo(spec: RepoSpec): Promise<'added' | 'exists'> {
+    if (this.registry.has(spec.url)) return 'exists'
+    await this.save({ ...this.current, repos: [...this.current.repos, spec] })
+    return 'added'
   }
 
   /**
