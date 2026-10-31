@@ -4,7 +4,7 @@
  * - 只接受本进程中由同一会话派发过的任务运行目录；应用、仓库和分析时的提交
  *   取自派发记录，不取自运行目录里可被 Agent 改写的内容。
  * - 只改应用 SKILL 目录 `.dsh/skills/<skill>/` 下的文件，提交以分析时的提交为
- *   父提交，提交到新分支 `guanxiang/skill-<应用 id>-<树对象前缀>`，从不提交到
+ *   父提交，提交到新分支 `guanxiang/skill-<应用 id>-<改动摘要前缀>`，从不提交到
  *   已有分支或默认分支。
  * - 提交和创建合并请求经 dsh-repo 的 `dshRepos` 服务完成，支持 GitLab 与
  *   GitHub；令牌由 dsh-repo 按主机配置。没有该服务或版本不符时工具报错。
@@ -24,14 +24,13 @@ import { z } from 'zod'
 import { describeIssue } from '../config.ts'
 import { isDelegatedAgent } from '../dispatch/tool.ts'
 import type { ContentBlock, HostApproval, ToolDefinition, ToolRunContext } from '../host.ts'
-import type { GitRunner } from '../repos/git.ts'
+import { messageOf, repoErrorCode, requireRepos } from '../repos/lookup.ts'
 import type { RepoRegistry } from '../repos/registry.ts'
 import type { AppManifest, EditableSettings } from '../settings/contract.ts'
-import { prepareChange } from './git.ts'
-import type { FileStat, PreparedChange } from './git.ts'
+import { prepareChange } from './change.ts'
+import type { FileStat, PreparedChange } from './change.ts'
 import { DIFF_FILE, FILES_DIR, PROPOSAL_DIR, ProposalError, readProposal, REASON_FILE } from './proposal.ts'
 import type { ProposedFile } from './proposal.ts'
-import { DSH_REPOS_SERVICE, DSH_REPOS_VERSION, lookupRepos, repoErrorCode } from './repos.ts'
 
 /** Model-facing tool name. */
 export const PROPOSE_TOOL_NAME = 'guanxiang_propose_skill'
@@ -105,7 +104,7 @@ const PARAMETERS: Record<string, unknown> = {
 const FILE_STAT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['path'],
+  required: ['path', 'added', 'removed'],
   properties: { path: { type: 'string' }, added: { type: 'number' }, removed: { type: 'number' } },
 } as const
 
@@ -132,7 +131,7 @@ const OUTPUT_SCHEMA = {
  * @returns one line.
  */
 export function describeFiles(files: readonly FileStat[]): string {
-  return files.map(file => file.added === undefined ? `${file.path}（二进制）` : `${file.path}（+${file.added} −${file.removed ?? 0}）`).join('、')
+  return files.map(file => `${file.path}（+${file.added} −${file.removed}）`).join('、')
 }
 
 /**
@@ -157,17 +156,11 @@ export function renderProposeValue(value: ProposeValue): ContentBlock[] {
 export interface SkillUpdaterDeps {
   readonly registry: RepoRegistry
   settings(): EditableSettings
-  readonly git: GitRunner
-  readonly gitTimeoutMs: number
   readonly author?: CommitAuthor
   /** DSH's approval service, when the composition has one. */
   approval(): HostApproval | undefined
   /** What `ctx.get('dshRepos')` returns now. */
   repos(): unknown
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -194,7 +187,7 @@ function skillDirOf(app: AppManifest): string {
 export class SkillUpdater {
   private readonly tasks = new Map<string, DispatchedTask>()
 
-  /** @param deps - registry, settings, git, and approval access. */
+  /** @param deps - registry, settings, approval, and `dshRepos` access. */
   constructor(private readonly deps: SkillUpdaterDeps) {}
 
   /** @returns whether proposals are enabled in the current settings. */
@@ -231,16 +224,13 @@ export class SkillUpdater {
   /**
    * Read the proposal, build its tree, and write the diff file.
    * @returns undefined when the task wrote no proposal.
-   * @throws ProposalError or a git failure.
+   * @throws ProposalError, or an error when dsh-repo is unavailable or the mirror cannot be read.
    */
-  private async prepare(task: DispatchedTask): Promise<{ reason: string; files: readonly ProposedFile[]; change: PreparedChange; target: string; diffPath: string } | undefined> {
+  private async prepare(task: DispatchedTask, signal?: AbortSignal): Promise<{ reason: string; files: readonly ProposedFile[]; change: PreparedChange; target: string; diffPath: string } | undefined> {
     const proposal = await readProposal(task.workDir, this.deps.settings().skillUpdates)
     if (proposal === undefined) return undefined
-    const commands = { git: this.deps.git, timeoutMs: this.deps.gitTimeoutMs }
-    const { change, target } = await this.deps.registry.withClone(task.url, async clone => ({
-      change: await prepareChange(commands, clone.dir, task.commit, skillDirOf(task.app), proposal.files),
-      target: clone.branch,
-    }))
+    const target = this.deps.registry.branchOf(task.url)
+    const change = await prepareChange(requireRepos(this.deps.repos()), { url: task.url, base: task.commit, skillDir: skillDirOf(task.app) }, proposal.files, signal)
     if (change.files.length === 0) throw new ProposalError(`提议的文件与提交 ${task.commit.slice(0, 12)} 中的 SKILL 相同，没有改动`)
     const diffPath = join(task.workDir, DIFF_FILE)
     await replaceFile(diffPath, change.diff)
@@ -286,18 +276,18 @@ export class SkillUpdater {
     if (task.sessionId !== agent.session.header.id) throw new Error(`${parsed.data.workDir} 不是当前会话派发的任务`)
     const approval = this.deps.approval()
     if (approval === undefined) throw new Error('当前 DSH 组合没有审批服务（@deepseek-ai/dsh-user-approval），观象不会在未经授权时提交')
-    const lookup = lookupRepos(this.deps.repos())
-    if (lookup.availability !== 'ready') {
-      throw new Error(lookup.availability === 'missing'
-        ? `提交 SKILL 修改需要 dsh-repo 插件提供的 ${DSH_REPOS_SERVICE} 服务；请安装 dsh-repo，并在它的 hosts 中配置该应用仓库所在的主机和令牌`
-        : `dsh-repo 的 ${DSH_REPOS_SERVICE} 服务与观象不兼容（观象需要服务版本 ${DSH_REPOS_VERSION} 且提供 getBranch，即 dsh-repo 0.1.0-beta.2 及以上）；请升级 dsh-repo`)
-    }
-    const repos = lookup.service
+    const repos = requireRepos(this.deps.repos())
 
-    const prepared = await this.prepare(task)
+    let prepared: Awaited<ReturnType<SkillUpdater['prepare']>>
+    try {
+      prepared = await this.prepare(task, exec.signal)
+    } catch (error) {
+      exec.signal.throwIfAborted()
+      throw error
+    }
     if (prepared === undefined) throw new Error(`${task.workDir} 中没有 SKILL 修改提议（${PROPOSAL_DIR}/${REASON_FILE} 与 ${PROPOSAL_DIR}/${FILES_DIR}/）`)
     const { change, target, diffPath, reason } = prepared
-    const branch = `guanxiang/skill-${task.app.id}-${change.tree.slice(0, 10)}`
+    const branch = `guanxiang/skill-${task.app.id}-${change.digest.slice(0, 10)}`
     const base = { app: task.app.id, repo: task.url, branch, target, files: [...change.files], diffPath }
 
     if (await repos.getBranch(task.url, branch, { signal: exec.signal }) !== undefined) return { ...base, status: 'exists' }

@@ -8,9 +8,8 @@
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { z } from 'zod'
-import { normalizeCredentialUrl } from './repos/credentials.ts'
 import { TOKEN_ENV_PATTERN } from './settings/contract.ts'
-import type { EditableSettings, GitCredentialSpec, RepoSpec } from './settings/contract.ts'
+import type { EditableSettings, RepoSpec } from './settings/contract.ts'
 
 /** Largest delay Node's `setTimeout` honors (2^31 − 1 ms). */
 export const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -58,15 +57,19 @@ const repoSchema = z.object({
     .refine(value => value === undefined || isAcceptedBranch(value), '分支名不合法'),
 }).strict()
 
-const credentialSchema = z.object({
-  url: z.string().trim()
-    .refine(value => normalizeCredentialUrl(value) !== undefined, '令牌地址不合法：填 https://主机[:端口][/路径]，不含用户名、查询参数或片段')
-    .transform(value => normalizeCredentialUrl(value) as string),
-  alias: z.string().trim().max(64, '令牌别名不能超过 64 个字符').regex(/^[^\u0000-\u001f\u007f]*$/, '令牌别名不能包含控制字符').optional()
-    .transform(value => value === '' ? undefined : value),
-  username: z.string().trim().regex(/^\S+$/, '用户名不能为空或包含空白').default('oauth2'),
-  tokenEnv: z.string().trim().regex(TOKEN_ENV_PATTERN, '令牌名称只能包含字母、数字和下划线，且不能以数字开头（它是凭据库中的键名，不是令牌本身）'),
-}).strict()
+/**
+ * An access token of earlier versions, which kept HTTPS tokens by address
+ * prefix. Read only to move each one to a dsh-repo host once; never written.
+ */
+const legacyCredentialSchema = z.object({
+  url: z.string().trim().min(1),
+  alias: z.string().trim().optional(),
+  username: z.string().optional(),
+  tokenEnv: z.string().trim().regex(TOKEN_ENV_PATTERN),
+}).strip()
+
+/** A legacy access token; see {@link legacyCredentialSchema}. */
+export type LegacyCredential = z.output<typeof legacyCredentialSchema>
 
 const hostSchema = z.string().trim().toLowerCase()
   .transform(value => value.replace(/^\*\./, ''))
@@ -97,19 +100,11 @@ const authorSchema = z.object({
 
 /** Field validators shared by the cordis config and the panel overlay. */
 export const editableFields = {
-  reposDir: z.string().trim().min(1, '拉取目录不能为空'),
   repos: z.array(repoSchema).superRefine((repos, issues) => {
     const seen = new Set<string>()
     for (const [index, repo] of repos.entries()) {
       if (seen.has(repo.url)) issues.addIssue({ code: 'custom', path: [index, 'url'], message: `重复的 git 地址：${repo.url}` })
       seen.add(repo.url)
-    }
-  }),
-  gitCredentials: z.array(credentialSchema).superRefine((credentials, issues) => {
-    const seen = new Set<string>()
-    for (const [index, credential] of credentials.entries()) {
-      if (seen.has(credential.url)) issues.addIssue({ code: 'custom', path: [index, 'url'], message: `重复的令牌地址：${credential.url}` })
-      seen.add(credential.url)
     }
   }),
   fetchIntervalMs: durationMs(0),
@@ -121,10 +116,11 @@ export const editableFields = {
 }
 
 const configSchema = z.object({
-  reposDir: editableFields.reposDir.optional(),
+  /** Ignored: dsh-repo's `mirror.dir` decides where repositories are mirrored. Accepted so older compositions still load. */
+  reposDir: z.string().optional(),
   repos: editableFields.repos.default([]),
-  /** HTTPS access tokens by address prefix; each names a credential reference, never a token value. */
-  gitCredentials: editableFields.gitCredentials.default([]),
+  /** Moved once to dsh-repo hosts at start; see {@link legacyCredentialSchema}. */
+  gitCredentials: z.array(legacyCredentialSchema).default([]),
   fetchIntervalMs: editableFields.fetchIntervalMs.default(0),
   maxAppsPerRequest: editableFields.maxAppsPerRequest.default(4),
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.default(30 * 60 * 1000),
@@ -143,8 +139,8 @@ const configSchema = z.object({
   skillUpdateAuthor: authorSchema.optional(),
   /** Registered `ctx.subagents` provider the children start on. */
   subagentProvider: z.string().trim().min(1).default('spawn'),
-  /** Timeout of one git command (clone, fetch, worktree), in milliseconds. */
-  gitTimeoutMs: durationMs(1000).default(10 * 60 * 1000),
+  /** Ignored: dsh-repo's `mirror.gitTimeoutMs` bounds git commands. Accepted so older compositions still load. */
+  gitTimeoutMs: z.number().optional(),
   /**
    * How long loading `/guanxiang` waits for the repository refresh before it
    * renders the catalog it already has, in milliseconds; the refresh keeps
@@ -166,9 +162,11 @@ export const pluginConfigSchema = configSchema.prefault({})
 
 /** Panel overlay: any subset of the editable settings. */
 export const overlaySchema = z.object({
-  reposDir: editableFields.reposDir.optional(),
+  /** Ignored legacy key; the next panel save drops it. */
+  reposDir: z.string().optional(),
   repos: editableFields.repos.optional(),
-  gitCredentials: editableFields.gitCredentials.optional(),
+  /** Legacy access tokens, moved once to dsh-repo hosts; the next panel save drops them. */
+  gitCredentials: z.array(legacyCredentialSchema).optional(),
   fetchIntervalMs: editableFields.fetchIntervalMs.optional(),
   maxAppsPerRequest: editableFields.maxAppsPerRequest.optional(),
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.optional(),
@@ -233,27 +231,14 @@ function copyRepos(repos: readonly RepoSpec[]): RepoSpec[] {
   return repos.map(repo => repo.branch === undefined ? { url: repo.url } : { url: repo.url, branch: repo.branch })
 }
 
-function copyCredentials(credentials: readonly GitCredentialSpec[]): GitCredentialSpec[] {
-  return credentials.map(credential => ({
-    url: credential.url,
-    ...credential.alias === undefined ? {} : { alias: credential.alias },
-    username: credential.username,
-    tokenEnv: credential.tokenEnv,
-  }))
-}
-
 /**
- * The editable settings a configuration implies, with `reposDir` defaulted to
- * `$DSH_HOME/guanxiang/repos`.
+ * The editable settings a configuration implies.
  * @param config - validated plugin configuration.
- * @param env - process environment.
  * @returns complete editable settings.
  */
-export function defaultsOf(config: GuanxiangConfig, env: NodeJS.ProcessEnv = process.env): EditableSettings {
+export function defaultsOf(config: GuanxiangConfig): EditableSettings {
   return {
-    reposDir: config.reposDir ?? join(resolveDshHome(env), 'guanxiang', 'repos'),
     repos: copyRepos(config.repos),
-    gitCredentials: copyCredentials(config.gitCredentials),
     fetchIntervalMs: config.fetchIntervalMs,
     maxAppsPerRequest: config.maxAppsPerRequest,
     dispatchTimeoutMs: config.dispatchTimeoutMs,
@@ -272,9 +257,7 @@ export function defaultsOf(config: GuanxiangConfig, env: NodeJS.ProcessEnv = pro
  */
 export function applyOverlay(defaults: EditableSettings, overlay: SettingsOverlay): EditableSettings {
   return {
-    reposDir: overlay.reposDir ?? defaults.reposDir,
     repos: overlay.repos === undefined ? defaults.repos : copyRepos(overlay.repos),
-    gitCredentials: overlay.gitCredentials === undefined ? defaults.gitCredentials : copyCredentials(overlay.gitCredentials),
     fetchIntervalMs: overlay.fetchIntervalMs ?? defaults.fetchIntervalMs,
     maxAppsPerRequest: overlay.maxAppsPerRequest ?? defaults.maxAppsPerRequest,
     dispatchTimeoutMs: overlay.dispatchTimeoutMs ?? defaults.dispatchTimeoutMs,

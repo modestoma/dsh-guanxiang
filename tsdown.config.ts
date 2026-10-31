@@ -18,6 +18,7 @@ export default defineConfig({
   clean: false,
   sourcemap: true,
   external: [
+    'diff',
     'yaml',
     'zod',
   ],

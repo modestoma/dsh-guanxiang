@@ -5,37 +5,45 @@
  * @module dsh-guanxiang/service
  */
 
+import type { DshRepoService } from 'dsh-repo/contract'
 import { z } from 'zod'
-import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema, expandHome } from './config.ts'
-import type { GuanxiangConfig, SettingsOverlay } from './config.ts'
+import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema } from './config.ts'
+import type { GuanxiangConfig, LegacyCredential, SettingsOverlay } from './config.ts'
 import { abortable } from './abort.ts'
 import type { AnalyzeGate } from './analyze/server.ts'
 import { FEISHU_TOPICS_SERVICE, lookupTopics } from './analyze/topics.ts'
 import { Dispatcher, isDelegatedAgent, isInside } from './dispatch/tool.ts'
 import type { HostApproval, HostContext, HostCredentials, ToolActivationContext, WorkingDirectoryService } from './host.ts'
-import { credentialEnvironment, credentialFor, isAcceptedToken, MAX_TOKEN_LENGTH } from './repos/credentials.ts'
-import { runGit } from './repos/git.ts'
-import type { GitRunner } from './repos/git.ts'
+import { DSH_REPOS_SERVICE, lookupRepos, messageOf, repoErrorCode, unavailableMessage } from './repos/lookup.ts'
 import { RepoRegistry } from './repos/registry.ts'
 import { ANALYZE_ROUTE } from './settings/contract.ts'
-import type { AnalyzeWire, CredentialsWire, EditableSettings, StateWire, TokenStatusWire } from './settings/contract.ts'
+import type { AnalyzeWire, EditableSettings, HostsWire, StateWire, TokenStatusWire } from './settings/contract.ts'
 import { diffOverlay, overriddenKeys } from './settings/overlay.ts'
 import type { OverlayStore } from './settings/overlay.ts'
 import { createEntrySkillProvider } from './skill/entry.ts'
-import { DSH_REPOS_SERVICE } from './skill-update/repos.ts'
 import { SkillUpdater } from './skill-update/tool.ts'
 
 /** A settings write the panel reports as a field error. */
 export class SettingsError extends Error {}
 
+/** Longest accepted token; personal access tokens are far shorter. */
+const MAX_TOKEN_LENGTH = 4096
+
+const tokenValue = z.string().trim()
+  .refine(value => value.length > 0 && value.length <= MAX_TOKEN_LENGTH && !/[\u0000-\u001f\u007f]/.test(value), `令牌不能为空、超过 ${MAX_TOKEN_LENGTH} 个字符或包含换行等控制字符`)
 const tokenClearSchema = z.object({ tokenEnv: z.string() }).strict()
-const tokenSetSchema = tokenClearSchema.extend({
-  value: z.string().trim().refine(isAcceptedToken, `令牌不能为空、超过 ${MAX_TOKEN_LENGTH} 个字符或包含换行等控制字符`),
+const tokenSetSchema = tokenClearSchema.extend({ value: tokenValue }).strict()
+const hostUrlSchema = z.object({ url: z.string().trim().min(1, '主机地址不能为空') }).strict()
+const hostTokenSchema = hostUrlSchema.extend({ value: tokenValue }).strict()
+const hostAddSchema = z.object({
+  kind: z.enum(['github', 'gitlab']).optional(),
+  url: z.string().trim().min(1, '主机地址不能为空'),
+  alias: z.string().trim().max(64, '别名不能超过 64 个字符').optional().transform(value => value === '' ? undefined : value),
+  token: tokenValue.optional(),
 }).strict()
 
 /** Optional seams for tests. */
 export interface ServiceOptions {
-  readonly git?: GitRunner
   readonly fetch?: typeof fetch
 }
 
@@ -52,6 +60,7 @@ export class GuanxiangService {
   private active = true
   private readonly refreshWaitMs: number
   private readonly analyzeTokenRef: string
+  private readonly legacyCredentials: readonly LegacyCredential[]
   private readonly booted = Promise.withResolvers<void>()
 
   /**
@@ -69,19 +78,15 @@ export class GuanxiangService {
     this.defaults = defaultsOf(config)
     this.refreshWaitMs = config.refreshWaitMs
     this.analyzeTokenRef = config.analyzeTokenRef
+    this.legacyCredentials = config.gitCredentials
     this.current = this.defaults
-    const git = options.git ?? runGit
     this.registry = new RepoRegistry({
-      git,
-      gitTimeoutMs: config.gitTimeoutMs,
-      auth: url => this.gitAuth(url),
+      repos: () => ctx.get?.(DSH_REPOS_SERVICE),
       onChange: () => { this.onRegistryChange() },
     })
     this.updater = new SkillUpdater({
       registry: this.registry,
       settings: () => this.current,
-      git,
-      gitTimeoutMs: config.gitTimeoutMs,
       ...config.skillUpdateAuthor === undefined ? {} : { author: config.skillUpdateAuthor },
       approval: () => ctx.get?.('approval') as HostApproval | undefined,
       repos: () => ctx.get?.(DSH_REPOS_SERVICE),
@@ -101,7 +106,10 @@ export class GuanxiangService {
       maxAppsPerRequest: () => this.current.maxAppsPerRequest,
       skillUpdates: () => this.current.skillUpdates.enabled,
       autoInvoke: config.autoInvoke,
-      inRepositories: cwd => isInside(cwd, expandHome(this.current.reposDir)),
+      inRepositories: (cwd) => {
+        const lookup = lookupRepos(ctx.get?.(DSH_REPOS_SERVICE))
+        return lookup.availability === 'ready' && isInside(cwd, lookup.service.mirrorSettings().dir)
+      },
     })
   }
 
@@ -158,7 +166,8 @@ export class GuanxiangService {
   }
 
   /**
-   * Load the panel overlay, configure the registry, and sync every repository.
+   * Load the panel overlay, configure the registry, move legacy access tokens
+   * to dsh-repo hosts, and sync every repository.
    * @returns when the first sync round settled.
    */
   async boot(): Promise<void> {
@@ -178,8 +187,45 @@ export class GuanxiangService {
       this.ctx.logger?.warn?.('guanxiang: 忽略面板设置：%s', read.error)
     }
     this.current = applyOverlay(this.defaults, this.overlay)
-    this.registry.configure(this.current.reposDir, this.current.repos)
+    this.registry.configure(this.current.repos)
+    await this.migrateCredentials()
     await this.registry.syncAll()
+  }
+
+  /**
+   * React to dsh-repo becoming available (or reloading): move legacy tokens
+   * and sync every repository again.
+   * @returns when the syncs settled.
+   */
+  async reposAvailable(): Promise<void> {
+    await this.booted.promise
+    if (!this.active) return
+    await this.migrateCredentials()
+    await this.registry.resyncAll()
+  }
+
+  /**
+   * Add each access token of earlier versions (cordis.yml or panel) whose
+   * address dsh-repo does not know yet as a dsh-repo host, carrying the
+   * stored token value. Failures are logged; the legacy entry stays and the
+   * next start tries again.
+   */
+  private async migrateCredentials(): Promise<void> {
+    const legacy = [...this.legacyCredentials, ...this.overlay.gitCredentials ?? []]
+    if (legacy.length === 0) return
+    const lookup = lookupRepos(this.ctx.get?.(DSH_REPOS_SERVICE))
+    if (lookup.availability !== 'ready') return
+    const store = this.credentialStore()
+    for (const credential of legacy) {
+      try {
+        const token = (await store?.resolve(credential.tokenEnv))?.value
+        await lookup.service.addHost({ url: credential.url, ...credential.alias === undefined || credential.alias === '' ? {} : { alias: credential.alias }, ...token === undefined || token === '' ? {} : { token } })
+        this.ctx.logger?.info?.('guanxiang: 已把访问令牌 %s 迁移为 dsh-repo 主机', credential.url)
+      } catch (error) {
+        if (repoErrorCode(error) === 'conflict') continue
+        this.ctx.logger?.warn?.('guanxiang: 迁移访问令牌 %s 到 dsh-repo 失败：%s', credential.url, messageOf(error))
+      }
+    }
   }
 
   /** Stop registering tools; in-flight syncs finish without side effects on the host. */
@@ -201,7 +247,8 @@ export class GuanxiangService {
       overridden: overriddenKeys(this.overlay),
       ...this.overlayError === undefined ? {} : { overlayError: this.overlayError },
       repos: this.registry.status(),
-      credentials: await this.credentialsState(),
+      hosts: await this.hostsState(),
+      credentialsAvailable: this.credentialStore() !== undefined,
       analyze: await this.analyzeState(),
     }
   }
@@ -236,39 +283,100 @@ export class GuanxiangService {
     return this.ctx.get?.('credentials') as HostCredentials | undefined
   }
 
-  private async credentialsState(): Promise<CredentialsWire> {
-    const store = this.credentialStore()
-    if (store === undefined) return { available: false, tokens: [] }
-    const names = [...new Set(this.current.gitCredentials.map(credential => credential.tokenEnv))]
-    const tokens = await Promise.all(names.map(tokenEnv => describeToken(store, tokenEnv)))
-    return { available: true, tokens }
+  private async hostsState(): Promise<HostsWire> {
+    const lookup = lookupRepos(this.ctx.get?.(DSH_REPOS_SERVICE))
+    if (lookup.availability !== 'ready') return { availability: lookup.availability, hosts: [] }
+    const mirrorDir = lookup.service.mirrorSettings().dir
+    try {
+      const hosts = await lookup.service.listHosts()
+      return {
+        availability: 'ready',
+        mirrorDir,
+        hosts: hosts.map(host => ({
+          kind: host.kind,
+          url: host.url,
+          ...host.alias === undefined ? {} : { alias: host.alias },
+          origin: host.origin,
+          token: { tokenEnv: host.tokenRef, ...host.token },
+        })),
+      }
+    } catch (error) {
+      return { availability: 'ready', mirrorDir, hosts: [], error: messageOf(error) }
+    }
   }
 
   /**
-   * Environment carrying the access token for one repository address; empty
-   * when no access-token configuration matches it.
-   * @param url - repository address.
-   * @returns variables for its network git commands.
-   * @throws when a configuration matches but its token cannot be read.
+   * Add a dsh-repo host, optionally with its token, then sync every repository.
+   * @param raw - request body `{ kind?, url, alias?, token? }`.
+   * @returns the new panel state.
+   * @throws SettingsError when the body is invalid, dsh-repo is unavailable, or it refuses the host.
    */
-  private async gitAuth(url: string): Promise<Record<string, string>> {
-    const spec = credentialFor(url, this.current.gitCredentials)
-    if (spec === undefined) return {}
-    const store = this.credentialStore()
-    if (store === undefined) throw new Error(`地址匹配访问令牌 ${spec.url}，但当前 DSH 组合没有凭据服务，无法读取 ${spec.tokenEnv}`)
-    const token = await store.resolve(spec.tokenEnv)
-    if (token === undefined) throw new Error(`地址匹配访问令牌 ${spec.url}，但 ${spec.tokenEnv} 未设置：请在观象面板「访问令牌」中保存令牌，或设置同名环境变量`)
-    if (!isAcceptedToken(token.value)) throw new Error(`${spec.tokenEnv} 的值不能用作令牌：不能超过 ${MAX_TOKEN_LENGTH} 个字符或包含换行等控制字符`)
-    return credentialEnvironment(spec, token.value)
+  async addHost(raw: unknown): Promise<StateWire> {
+    const parsed = hostAddSchema.safeParse(raw)
+    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
+    const { kind, url, alias, token } = parsed.data
+    await this.withRepos(repos => repos.addHost({ url, ...kind === undefined ? {} : { kind }, ...alias === undefined ? {} : { alias }, ...token === undefined ? {} : { token } }))
+    return await this.state()
   }
 
   /**
-   * Store the token of one access-token configuration in DSH's credential
-   * store, then re-sync the repositories that use it; or store the analyze
-   * API's bearer token (`analyzeTokenRef`), which applies from the next request.
+   * Remove a host added from a panel, and its stored token.
+   * @param raw - request body `{ url }`.
+   * @returns the new panel state.
+   * @throws SettingsError when the body is invalid, dsh-repo is unavailable, or the host is unknown or configured in cordis.yml.
+   */
+  async removeHost(raw: unknown): Promise<StateWire> {
+    const parsed = hostUrlSchema.safeParse(raw)
+    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
+    await this.withRepos(repos => repos.removeHost(parsed.data.url))
+    return await this.state()
+  }
+
+  /**
+   * Store a host's token through dsh-repo, then sync every repository.
+   * @param raw - request body `{ url, value }`.
+   * @returns the new panel state.
+   * @throws SettingsError when the body is invalid, dsh-repo is unavailable, or the host is unknown.
+   */
+  async setHostToken(raw: unknown): Promise<StateWire> {
+    const parsed = hostTokenSchema.safeParse(raw)
+    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
+    await this.withRepos(repos => repos.setHostToken(parsed.data.url, parsed.data.value))
+    return await this.state()
+  }
+
+  /**
+   * Remove a host's stored token; an environment variable of the same name applies again.
+   * @param raw - request body `{ url }`.
+   * @returns the new panel state.
+   * @throws SettingsError on the same conditions as {@link setHostToken}.
+   */
+  async clearHostToken(raw: unknown): Promise<StateWire> {
+    const parsed = hostUrlSchema.safeParse(raw)
+    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
+    await this.withRepos(repos => repos.setHostToken(parsed.data.url, undefined))
+    return await this.state()
+  }
+
+  /** Run one host change and start a resync, reporting dsh-repo failures as field errors. */
+  private async withRepos(change: (repos: DshRepoService) => Promise<unknown>): Promise<void> {
+    const lookup = lookupRepos(this.ctx.get?.(DSH_REPOS_SERVICE))
+    if (lookup.availability !== 'ready') throw new SettingsError(unavailableMessage(lookup.availability))
+    try {
+      await change(lookup.service)
+    } catch (error) {
+      if (repoErrorCode(error) !== undefined) throw new SettingsError(messageOf(error))
+      throw error
+    }
+    void this.registry.resyncAll()
+  }
+
+  /**
+   * Store the analyze API's bearer token (`analyzeTokenRef`) in DSH's
+   * credential store; it applies from the next request.
    * @param raw - request body `{ tokenEnv, value }`.
    * @returns the new panel state.
-   * @throws SettingsError when the body is invalid, the name is neither referenced by the saved settings nor `analyzeTokenRef`, or no credential store is loaded.
+   * @throws SettingsError when the body is invalid, the name is not `analyzeTokenRef`, or no credential store is loaded.
    */
   async setToken(raw: unknown): Promise<StateWire> {
     const parsed = tokenSetSchema.safeParse(raw)
@@ -277,8 +385,8 @@ export class GuanxiangService {
   }
 
   /**
-   * Remove the stored token of one access-token configuration; an environment
-   * variable of the same name applies again afterwards.
+   * Remove the stored analyze token; an environment variable of the same name
+   * applies again afterwards.
    * @param raw - request body `{ tokenEnv }`.
    * @returns the new panel state.
    * @throws SettingsError on the same conditions as {@link setToken}.
@@ -290,18 +398,17 @@ export class GuanxiangService {
   }
 
   private async writeToken(tokenEnv: string, value: string | undefined): Promise<StateWire> {
-    if (tokenEnv !== this.analyzeTokenRef && !this.current.gitCredentials.some(credential => credential.tokenEnv === tokenEnv)) throw new SettingsError(`${tokenEnv} 不是已保存的访问令牌配置引用的名称`)
+    if (tokenEnv !== this.analyzeTokenRef) throw new SettingsError(`${tokenEnv} 不是分析接口令牌的名称`)
     const store = this.credentialStore()
     if (store === undefined) throw new SettingsError('当前 DSH 组合没有凭据服务（@deepseek-ai/dsh-credentials-local），无法保存令牌')
     if (value === undefined) await store.unset(tokenEnv)
     else await store.set(tokenEnv, value)
-    void this.registry.resyncUrls(this.current.repos.map(repo => repo.url).filter(url => credentialFor(url, this.current.gitCredentials)?.tokenEnv === tokenEnv))
     return await this.state()
   }
 
   /**
    * Validate and persist a complete settings payload from the panel, then
-   * sync repositories whose address, branch, or directory changed.
+   * sync repositories whose address or branch changed.
    * @param raw - request body.
    * @returns the new panel state.
    * @throws SettingsError when the payload is invalid.
@@ -335,21 +442,12 @@ export class GuanxiangService {
     void (url === undefined ? this.registry.syncAll() : this.registry.syncUrls([url]))
   }
 
-  /**
-   * Make an overlay effective and sync the repositories whose address, branch,
-   * directory, or matching access-token configuration changed.
-   */
+  /** Make an overlay effective and sync the repositories whose address or branch changed. */
   private apply(overlay: SettingsOverlay): void {
-    const previous = this.current.gitCredentials
     this.overlay = overlay
     this.overlayError = undefined
     this.current = applyOverlay(this.defaults, overlay)
-    const changed = this.registry.configure(this.current.reposDir, this.current.repos)
-    const next = this.current.gitCredentials
-    const reauthorized = this.current.repos.map(repo => repo.url)
-      .filter(url => JSON.stringify(credentialFor(url, previous)) !== JSON.stringify(credentialFor(url, next)))
-    void this.registry.syncUrls(changed)
-    void this.registry.resyncUrls(reauthorized.filter(url => !changed.includes(url)))
+    void this.registry.syncUrls(this.registry.configure(this.current.repos))
   }
 
   private onRegistryChange(): void {
