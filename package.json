@@ -91,7 +91,7 @@
     "@types/node": "^26.6.5",
     "@types/react": "~18.3.31",
     "conventional-changelog-conventionalcommits": "9.3.1",
-    "dsh-repo": "^0.1.0-beta.2",
+    "dsh-repo": "^0.1.0-beta.3",
     "react": "18.3.1",
     "semantic-release": "^25.0.9",
     "tsdown": "0.22.2",
