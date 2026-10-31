@@ -205,21 +205,28 @@ export class GuanxiangService {
   }
 
   /**
-   * Add each access token of earlier versions (cordis.yml or panel) whose
-   * address dsh-repo does not know yet as a dsh-repo host, carrying the
-   * stored token value. Failures are logged; the legacy entry stays and the
+   * Add each access token of earlier versions whose address dsh-repo does not
+   * know yet as a dsh-repo host, carrying the stored token value. The panel's
+   * list replaces the cordis.yml list, as it did before. An entry whose token
+   * cannot be resolved yet is left for a later start instead of creating a
+   * host without a token. Failures are logged; the legacy entry stays and the
    * next start tries again.
    */
   private async migrateCredentials(): Promise<void> {
-    const legacy = [...this.legacyCredentials, ...this.overlay.gitCredentials ?? []]
+    const legacy = this.overlay.gitCredentials ?? this.legacyCredentials
     if (legacy.length === 0) return
     const lookup = lookupRepos(this.ctx.get?.(DSH_REPOS_SERVICE))
     if (lookup.availability !== 'ready') return
     const store = this.credentialStore()
+    if (store === undefined) return
     for (const credential of legacy) {
       try {
-        const token = (await store?.resolve(credential.tokenEnv))?.value
-        await lookup.service.addHost({ url: credential.url, ...credential.alias === undefined || credential.alias === '' ? {} : { alias: credential.alias }, ...token === undefined || token === '' ? {} : { token } })
+        const token = (await store.resolve(credential.tokenEnv))?.value
+        if (token === undefined || token === '') {
+          this.ctx.logger?.warn?.('guanxiang: 访问令牌 %s 尚未设置，暂不迁移到 dsh-repo', credential.url)
+          continue
+        }
+        await lookup.service.addHost({ url: credential.url, ...credential.alias === undefined || credential.alias === '' ? {} : { alias: credential.alias }, token })
         this.ctx.logger?.info?.('guanxiang: 已把访问令牌 %s 迁移为 dsh-repo 主机', credential.url)
       } catch (error) {
         if (repoErrorCode(error) === 'conflict') continue

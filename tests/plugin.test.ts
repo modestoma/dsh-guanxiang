@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { runGit } from 'dsh-repo'
 import type { GitRunner, RepoService } from 'dsh-repo'
@@ -275,6 +275,32 @@ describe('plugin', () => {
     const [host] = await h.repos.listHosts()
     expect(host).toMatchObject({ kind: 'gitlab', url: 'https://gitlab.example.com', alias: '公司', origin: 'added', token: { configured: true } })
     expect(credentials.values[host!.tokenRef]).toBe('glpat-old')
+  })
+
+  it('migrates the panel list of earlier versions in place of the cordis.yml list', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const credentials = memoryCredentials({ CONFIG_TOKEN: 'glpat-config', PANEL_TOKEN: 'glpat-panel' })
+    const h = await harness({ credentials })
+    cleanups.push(h.dispose)
+    const overlayPath = join(dir, 'settings.json')
+    await writeFile(overlayPath, JSON.stringify({ gitCredentials: [{ url: 'https://gitlab.example.com', tokenEnv: 'PANEL_TOKEN' }] }))
+    apply(h.ctx, { gitCredentials: [{ url: 'https://gitlab.example.com', tokenEnv: 'CONFIG_TOKEN' }, { url: 'https://old.example.com', tokenEnv: 'CONFIG_TOKEN' }] }, { overlayPath })
+    await waitFor(async () => (await h.repos.listHosts()).length === 1)
+    const [host] = await h.repos.listHosts()
+    expect(host?.url).toBe('https://gitlab.example.com')
+    expect(credentials.values[host!.tokenRef]).toBe('glpat-panel')
+  })
+
+  it('leaves an access token of earlier versions whose value is not set for a later start', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const credentials = memoryCredentials({ SET_TOKEN: 'glpat-set' })
+    const h = await harness({ credentials })
+    cleanups.push(h.dispose)
+    apply(h.ctx, { gitCredentials: [{ url: 'https://unset.example.com', tokenEnv: 'UNSET_TOKEN' }, { url: 'https://gitlab.example.com', tokenEnv: 'SET_TOKEN' }] }, { overlayPath: join(dir, 'settings.json') })
+    await waitFor(async () => (await h.repos.listHosts()).length === 1)
+    expect((await h.repos.listHosts()).map(host => host.url)).toEqual(['https://gitlab.example.com'])
   })
 
   it('reports a missing dsh-repo instead of pulling', async () => {
