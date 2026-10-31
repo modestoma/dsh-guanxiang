@@ -119,10 +119,10 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
 
 ### 仓库拉取与访问令牌
 
-应用仓库由 [dsh-repo](https://github.com/modestoma/dsh-repo) 拉取，观象自己不运行 git，需要同时安装 dsh-repo；没有 dsh-repo 或其服务版本不兼容时仓库拉取失败，原因显示在设置面板。
+应用仓库由 [dsh-repo](https://github.com/modestoma/dsh-repo) 拉取，观象自己不运行 git，需要同时安装 dsh-repo 0.1.0-beta.4 或更新版本；没有 dsh-repo 或其服务版本不兼容时仓库拉取失败，原因显示在设置面板。
 
 - **镜像与快照在 dsh-repo。** 仓库镜像在 dsh-repo 的 `mirror.dir`（默认 `$DSH_HOME/dsh-repo/mirrors`）下，只用来 fetch，不检出文件；git 超时用 dsh-repo 的 `mirror.gitTimeoutMs`。
-- **访问令牌是 dsh-repo 的主机。** https 地址属于 dsh-repo 中某个主机时，拉取自动使用该主机的令牌（GitLab 用户名 `oauth2`）。主机可以写在 dsh-repo 的 `hosts` 中，也可以在观象面板「访问令牌」分页添加；令牌存入 DSH 凭据库，面板只显示是否已设置。ssh 地址、`user@host:path`、其他主机和本地路径使用本机已有的 git 凭据（SSH key 或 credential helper），不会弹出交互式输入。
+- **访问令牌是 dsh-repo 的主机。** https 地址属于 dsh-repo 中某个主机时，拉取自动使用该主机的令牌（GitLab 用户名 `oauth2`）。主机可以写在 dsh-repo 的 `hosts` 中，也可以在 DSH Web「插件 → dsh-repo」页面添加（观象面板「应用仓库」分页的「管理主机与令牌」直接跳过去）；令牌存入 DSH 凭据库。dsh-repo 中的主机或令牌每次变更后，观象自动重新拉取全部仓库。ssh 地址、`user@host:path`、其他主机和本地路径使用本机已有的 git 凭据（SSH key 或 credential helper），不会弹出交互式输入。
 
 凭据库文件只防其他系统用户。与 DSH 中的模型 API Key 一样，Agent 的命令以同一系统用户运行，文件权限不能把令牌与 Agent 隔离（见 `@deepseek-ai/dsh-credentials-local` 文档）；建议使用权限最小、设置过期时间的令牌。
 
@@ -134,13 +134,12 @@ DSH Web 左侧栏的「观象」入口打开整页设置面板：
 
 | 分页 | 内容 |
 |---|---|
-| 应用仓库 | git 地址列表（分支可选）、每个仓库的拉取状态、提交号、应用描述与不可用原因，单个或全部重新拉取 |
-| 访问令牌 | dsh-repo 的主机列表：选 GitLab 或 GitHub，填地址、别名和令牌即可添加，立即生效。每行显示令牌是否已设置及来源，可替换或清除；面板添加的主机可以删除，dsh-repo cordis.yml 中的主机只能改令牌 |
+| 应用仓库 | git 地址列表（分支可选）、每个仓库的拉取状态、提交号、应用描述与不可用原因，单个或全部重新拉取，以及跳转到 dsh-repo 主机与令牌设置的按钮 |
 | 日志下载 | 允许下载的域名、单文件大小上限、下载超时 |
 | 分析接口 | [日志平台分析接口](#日志平台分析接口)的开关、访问令牌（只显示是否已设置）、飞书渠道是否就绪，以及调用地址与字段摘要 |
 | 高级 | 更新间隔、单次应用数上限、派发超时、SKILL 改进开关与提议上限，恢复 cordis.yml 配置 |
 
-面板保存的值写入 `$DSH_HOME/logalyze/settings.json`（只保存与 cordis.yml 不同的字段），按与配置相同的规则校验；主机保存在 dsh-repo，令牌值存入 DSH 凭据库。面板接口 `/logalyze/*` 使用 DSH 自己的登录与来源校验，写操作另做同源校验。
+面板保存的值写入 `$DSH_HOME/logalyze/settings.json`（只保存与 cordis.yml 不同的字段），按与配置相同的规则校验；分析接口令牌存入 DSH 凭据库。面板接口 `/logalyze/*` 使用 DSH 自己的登录与来源校验，写操作另做同源校验。
 
 ## 应用仓库约定
 
@@ -163,7 +162,7 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 
 ## SKILL 改进
 
-开启 `skillUpdates.enabled`（设置面板「高级」→「SKILL 改进」）后，分析中发现的 SKILL 欠缺可以经用户授权后提交为合并请求。提交和创建合并请求经 [dsh-repo](https://github.com/modestoma/dsh-repo) 的 `dshRepos` 服务完成：应用仓库所在的主机要在 dsh-repo 中配置令牌（dsh-repo 的 `hosts` 或面板「访问令牌」）；没有该服务或版本不符时工具报错。
+开启 `skillUpdates.enabled`（设置面板「高级」→「SKILL 改进」）后，分析中发现的 SKILL 欠缺可以经用户授权后提交为合并请求。提交和创建合并请求经 [dsh-repo](https://github.com/modestoma/dsh-repo) 的 `dshRepos` 服务完成：应用仓库所在的主机要在 dsh-repo 中配置令牌（dsh-repo 的 `hosts` 或「插件 → dsh-repo」页面）；没有该服务或版本不符时工具报错。
 
 1. **子 Agent 写提议。** 子 Agent 的任务消息多出一节说明：把要改的文件从 `.dsh/skills/<skill>/` 复制到运行目录的 `skill-proposal/files/`（保持相对路径）后修改，理由写进 `skill-proposal/reason.md`。仓库对子 Agent 仍然只读。
 2. **派发结果标出提议。** 派发结束后，观象检查已完成任务的提议：只接受普通文件和受限的文件名、UTF-8 文本、文件数与大小上限，`SKILL.md` 不能设置 `user-invocable: false`。合格的提议在结果中给出改动行数，并在运行目录写出 `skill-proposal.diff`；不合格的给出原因。

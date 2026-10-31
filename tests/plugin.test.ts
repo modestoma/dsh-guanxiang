@@ -217,7 +217,7 @@ describe('plugin', () => {
     expect(await h.tools[0]!.when?.(step)).toBe(false)
   })
 
-  it('pulls https repositories with a host token added through the panel without exposing it', async () => {
+  it('pulls https repositories again after a dsh-repo host or token change, without exposing the token', async () => {
     const { dir, cleanup } = await tempDir()
     cleanups.push(cleanup)
     const work = await createAppRepo(join(dir, 'order-service'))
@@ -226,42 +226,26 @@ describe('plugin', () => {
     const token = 'glpat-Secret0123456789'
     const server = await serveGitOverHttp(join(dir, 'served'), 'oauth2', token)
     cleanups.push(server.close)
-    const credentials = memoryCredentials()
-    const h = await harness({ credentials })
+    const h = await harness({ credentials: memoryCredentials() })
     cleanups.push(h.dispose)
     const url = `${server.base}/team/order-service.git`
     apply(h.ctx, { repos: [{ url }] }, { overlayPath: join(dir, 'settings.json') })
     const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/logalyze/state`))
-    const send = (route: string, method: string, body: unknown): Promise<Response> => fetch(`${h.base}${route}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
     await waitFor(async () => (await state()).repos[0]?.phase === 'failed')
-    expect((await state()).hosts).toMatchObject({ availability: 'ready', hosts: [], mirrorDir: h.repos.mirrorSettings().dir })
+    expect((await state()).dshRepo).toEqual({ availability: 'ready', mirrorDir: h.repos.mirrorSettings().dir })
+    expect((await fetch(`${h.base}/logalyze/hosts`, { method: 'POST' })).status).not.toBe(200)
 
-    expect((await send('/logalyze/hosts', 'POST', { url: server.base, alias: '本地', token: 'a\nb' })).status).toBe(400)
-    expect((await send('/logalyze/hosts', 'POST', { url: server.base, alias: '本地', token: 'glpat-wrong' })).status).toBe(200)
-    expect((await send('/logalyze/hosts', 'POST', { url: server.base })).status).toBe(400)
+    await h.repos.addHost({ url: server.base, token: 'glpat-wrong' })
     await waitFor(async () => { const repo = (await state()).repos[0]; return repo?.phase === 'failed' && repo.syncedAt !== undefined })
-    const added = await state()
-    expect(added.hosts.hosts).toMatchObject([{ kind: 'gitlab', url: server.base, alias: '本地', origin: 'added', token: { configured: true, source: 'file', writable: true } }])
-    expect(JSON.stringify(added)).not.toContain('glpat-wrong')
+    expect(JSON.stringify(await state())).not.toContain('glpat-wrong')
 
-    const saved = await send('/logalyze/host-token', 'PUT', { url: server.base, value: ` ${token} ` })
-    const savedText = await saved.text()
-    expect(saved.status).toBe(200)
-    expect(savedText).not.toContain(token)
-    // The mutation response already shows the retry, so the panel keeps polling.
-    expect((JSON.parse(savedText) as { state: StateWire }).state.repos[0]?.phase).toBe('syncing')
+    await h.repos.setHostToken(server.base, token)
     await waitFor(async () => (await state()).repos[0]?.available === true)
     const ready = await state()
     expect(JSON.stringify(ready)).not.toContain(token)
     expect(await readFile(join(ready.repos[0]!.dir!, '.git', 'config'), 'utf8')).not.toContain(token)
-
-    expect((await send('/logalyze/host-token', 'DELETE', { url: server.base })).status).toBe(200)
-    expect((await state()).hosts.hosts[0]?.token.configured).toBe(false)
-    expect((await send('/logalyze/hosts', 'DELETE', { url: server.base })).status).toBe(200)
-    expect((await state()).hosts.hosts).toEqual([])
-    expect(Object.keys(credentials.values)).toEqual([])
-    expect((await send('/logalyze/token', 'PUT', { tokenEnv: 'GITLAB_TOKEN', value: 'x' })).status).toBe(400)
+    expect((await fetch(`${h.base}/logalyze/token`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenEnv: 'GITLAB_TOKEN', value: 'x' }) })).status).toBe(400)
   })
 
   it('reports a missing dsh-repo instead of pulling', async () => {
@@ -273,10 +257,8 @@ describe('plugin', () => {
     const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/logalyze/state`))
     await waitFor(async () => (await state()).repos[0]?.phase === 'failed')
     const current = await state()
-    expect(current.hosts).toEqual({ availability: 'missing', hosts: [] })
+    expect(current.dshRepo).toEqual({ availability: 'missing' })
     expect(current.repos[0]?.error).toContain('请安装 dsh-repo')
-    const post = await fetch(`${h.base}/logalyze/hosts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: 'https://gitlab.invalid' }) })
-    expect(post.status).toBe(400)
   })
 
   it('answers the host gate rejection before touching the request', async () => {

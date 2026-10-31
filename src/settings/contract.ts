@@ -13,10 +13,6 @@ export const SETTINGS_ROUTE = '/logalyze/settings'
 export const SYNC_ROUTE = '/logalyze/sync'
 /** PUT：body `{ tokenEnv, value }` 把分析接口令牌存入 DSH 凭据库；DELETE：body `{ tokenEnv }` 删除已存的值。只接受分析接口令牌的名称。 */
 export const TOKEN_ROUTE = '/logalyze/token'
-/** POST：body {@link HostAddRequest} 经 dsh-repo 添加主机；DELETE：body `{ url }` 删除面板添加的主机。 */
-export const HOSTS_ROUTE = '/logalyze/hosts'
-/** PUT：body `{ url, value }` 经 dsh-repo 保存主机令牌；DELETE：body `{ url }` 清除已存的令牌。 */
-export const HOST_TOKEN_ROUTE = '/logalyze/host-token'
 
 /**
  * POST：日志平台分析接口（Bearer 令牌鉴权，不走 DSH 登录）。它在 DSH 的
@@ -34,20 +30,6 @@ export interface RepoSpec {
 
 /** Credential reference grammar of `@deepseek-ai/dsh-credentials` (a POSIX shell identifier). */
 export const TOKEN_ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
-
-/** Code host family of a dsh-repo host. */
-export type HostKind = 'github' | 'gitlab'
-
-/** Body of a {@link HOSTS_ROUTE} POST. */
-export interface HostAddRequest {
-  /** Default `gitlab`. */
-  kind?: HostKind
-  /** `https://host[:port][/path]`. */
-  url: string
-  alias?: string
-  /** Token value; omitted leaves it unset. */
-  token?: string
-}
 
 /** Log URL download policy. */
 export interface DownloadSettings {
@@ -154,16 +136,6 @@ export interface TokenStatusWire {
   error?: string
 }
 
-/** One dsh-repo host as the panel shows it. */
-export interface HostWire {
-  kind: HostKind
-  url: string
-  alias?: string
-  /** `config`: from dsh-repo's cordis.yml entry, not removable here; `added`: added from a panel. */
-  origin: 'config' | 'added'
-  token: TokenStatusWire
-}
-
 /**
  * Whether dsh-repo provides the `dshRepos` service this plugin mirrors
  * repositories and submits proposals through: `missing` while it is not
@@ -173,14 +145,10 @@ export interface HostWire {
 export type ReposAvailability = 'ready' | 'missing' | 'incompatible'
 
 /** dsh-repo view of the panel. */
-export interface HostsWire {
+export interface ReposWire {
   availability: ReposAvailability
-  /** Configured hosts first; empty unless `ready`. */
-  hosts: HostWire[]
   /** Mirror directory; absent unless `ready`. */
   mirrorDir?: string
-  /** Why the hosts could not be listed. */
-  error?: string
 }
 
 /**
@@ -213,7 +181,7 @@ export interface StateWire {
   /** Why the overlay file was ignored (unreadable or invalid); panel saves replace it. */
   overlayError?: string
   repos: RepoStatusWire[]
-  hosts: HostsWire
+  dshRepo: ReposWire
   /** Whether the DSH composition provides `ctx.credentials`; without it the analyze token cannot be stored or read. */
   credentialsAvailable: boolean
   analyze: AnalyzeWire
