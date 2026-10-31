@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { resolveConfig, defaultsOf } from '../src/config.ts'
 import { Dispatcher, renderDispatchValue } from '../src/dispatch/tool.ts'
@@ -9,7 +9,8 @@ import type { Agent, SubagentActivation, SubagentResult, SubagentService } from 
 import { RepoRegistry } from '../src/repos/registry.ts'
 import type { EditableSettings } from '../src/settings/contract.ts'
 import { SkillUpdater } from '../src/skill-update/tool.ts'
-import { createAppRepo, createRepos, tempDir } from './helpers.ts'
+import { FakeRepos } from './fake-repos.ts'
+import { createAppRepo, tempDir } from './helpers.ts'
 
 let server: Server
 let port = 0
@@ -55,7 +56,7 @@ async function setup(overrides: Partial<EditableSettings> = {}, proposals = fals
   const origin = await createAppRepo(join(dir, 'order-service'))
   const project = join(dir, 'project')
   await createAppRepo(project)
-  const repos = createRepos(join(dir, 'dsh-repo'))
+  const repos = new FakeRepos(join(dir, 'mirrors'))
   const registry = new RepoRegistry({ repos: () => repos, onChange: () => {} })
   const settings: EditableSettings = {
     ...defaultsOf(resolveConfig({})),
@@ -77,7 +78,7 @@ async function setup(overrides: Partial<EditableSettings> = {}, proposals = fals
     now: () => new Date(2026, 9, 25, 9, 30, 0),
   })
   const parent: Agent = { id: 'parent', session: { header: { id: 'parent', cwd: project } } }
-  return { dir, project, registry, dispatcher, started, parent, settings }
+  return { dir, project, registry, dispatcher, started, parent, settings, repos }
 }
 
 async function waitForStarts(started: Started[], count: number): Promise<void> {
@@ -87,7 +88,7 @@ async function waitForStarts(started: Started[], count: number): Promise<void> {
 
 describe('logalyze_dispatch', () => {
   it('starts one child per task in the app repository and returns every result', async () => {
-    const { dir, project, dispatcher, started, parent, registry } = await setup()
+    const { project, dispatcher, started, parent, registry, repos } = await setup()
     const log = join(project, 'sample-logs', 'order-service.log')
     const running = dispatcher.execute({
       tasks: [{
@@ -100,7 +101,7 @@ describe('logalyze_dispatch', () => {
     const [child] = started
     expect(registry.status()[0]?.activeRuns).toBe(1)
     expect(child?.spec).toMatchObject({ provider: 'spawn', label: '订单服务分析', delivery: 'caller', request: { parent, maxDepth: 1 } })
-    expect(child?.spec.request.cwd).toMatch(new RegExp(`^${join(dir, 'dsh-repo', 'mirrors', '.snapshots', 'local')}/order-service-[0-9a-f]{8}/[0-9a-f]{12}-[0-9a-f]{6}$`))
+    expect(child?.spec.request.cwd).toBe(join(repos.root, '.snapshots', basename(repos.mirrorDir(registry.status()[0]!.url)), registry.status()[0]!.commit!.slice(0, 12)))
     const prompt = child?.spec.request.prompt[0]?.text as string
     expect(prompt.split('\n')[0]).toBe('/log-analysis')
     const workDir = join(project, 'sample-logs', '.logalyze', 'runs')
@@ -142,10 +143,10 @@ describe('logalyze_dispatch', () => {
     started[0]?.settle({ stopReason: 'completed', output: [{ type: 'text', text: '结论' }] })
     started[1]?.settle({ stopReason: 'error', output: [] })
     const value = await running
-    expect(value.results[0]?.skillProposal).toEqual({ ok: true, files: [{ path: '.dsh/skills/log-analysis/SKILL.md', added: 1, removed: expect.any(Number) }], diffPath: join(workDir, 'skill-proposal.diff') })
+    expect(value.results[0]?.skillProposal).toEqual({ ok: true, files: [{ path: '.agents/skills/log-analysis/SKILL.md', added: 1, removed: expect.any(Number) }], diffPath: join(workDir, 'skill-proposal.diff') })
     expect(value.results[1]?.skillProposal).toBeUndefined()
     const text = renderDispatchValue(value)[0]?.text
-    expect(text).toContain('SKILL 修改提议：.dsh/skills/log-analysis/SKILL.md（+1 −')
+    expect(text).toContain('SKILL 修改提议：.agents/skills/log-analysis/SKILL.md（+1 −')
     expect(text).toContain(`提交时调用 logalyze_propose_skill，workDir 为 ${workDir}。`)
   })
 

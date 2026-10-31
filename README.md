@@ -48,7 +48,7 @@
 用户：/logalyze 订单服务昨晚 21 点下单报 500，日志见附件
         │
         ▼
-入口 SKILL（意图识别）── 先 fetch 各仓库，应用目录由远端最新提交的 .dsh/logalyze.yaml 生成
+入口 SKILL（意图识别）── 先 fetch 各仓库，应用目录由远端最新提交的 .agents/logalyze.yaml 生成
         │  logalyze_dispatch({ tasks: [{ app, question, logs }] })
         ▼
 派发工具：校验应用 id → 下载 URL 日志 → 并行启动子 Agent，等待全部结束
@@ -57,14 +57,14 @@
 父 Agent 按应用分节汇总，涉及多个应用时给出跨应用的推演
 ```
 
-- **一个入口，两种触发。** 入口 SKILL 是 `/logalyze`，dsh 在 Web、TUI、ACP 以及经 dsh_channels 的飞书消息中都能识别它。有可用应用且 `autoInvoke` 开启（默认）时，模型也能自行加载：dsh 给顶层 Agent 的 skill 目录里，观象的描述会列出每个可用应用的名称、id、别名和日志特征（总长不超过 500 字，放不下的只计数），用户说「分析这份订单服务的日志」或贴出带 `OrderController` 的报错时，模型会先加载观象。日志明显不属于任何已注册应用时，入口 SKILL 让模型按普通方式处理，不派发也不追问。子 Agent 的工作目录在 dsh-repo 的镜像目录内，那里不列出观象。应用增删时 dsh 会追加一条新的 skill 目录消息；想要确定触发时仍用 `/logalyze`。
+- **一个入口，两种触发。** 入口 SKILL 是 `/logalyze`，dsh 在 Web、TUI、ACP 以及经 dsh_channels 的飞书消息中都能识别它。有可用应用且 `autoInvoke` 开启（默认）时，模型也能自行加载：dsh 给顶层 Agent 的 skill 目录里，观象的描述会列出每个可用应用的名称、id、别名和日志特征（总长不超过 500 字，放不下的只计数），用户说「分析这份订单服务的日志」或贴出带 `OrderController` 的报错时，模型会先加载观象。日志明显不属于任何已注册应用时，入口 SKILL 让模型按普通方式处理，不派发也不追问。子 Agent 的工作目录在 `dshRepos` 服务的镜像目录内，那里不列出观象。应用增删时 dsh 会追加一条新的 skill 目录消息；想要确定触发时仍用 `/logalyze`。
 - **派发由代码完成。** 模型只给出应用 id、问题和日志位置；仓库目录、应用 SKILL、并发上限都由插件决定。应用 id 必须与注册表一一对应，否则整次派发被拒绝。
 - **日志一律以绝对路径交给子 Agent。** 附件和本机文件直接传路径；消息里的对象存储下载链接由派发工具下载（只允许白名单域名，不带鉴权，限制大小与耗时）。日志包不解压，由应用的日志分析 SKILL 在运行目录里解压。
-- **应用目录随时最新。** 每次加载 `/logalyze` 都先经 dsh-repo `git fetch` 各仓库（间隔由 `fetchIntervalMs` 控制，默认每次），再从远端分支最新提交的 git 对象读取应用描述生成应用目录。fetch 不改动任何检出，所以正在进行的分析不会挡住更新。最多等待 `refreshWaitMs`，超时就先用已有的目录，fetch 在后台继续。
-- **代码快照不可变。** 子 Agent 在 dsh-repo 按提交创建的 `git worktree` 只读快照里工作。快照创建后不再改动，同一提交的派发共用一份；没有分析在用、且已不是最新提交的快照会被删除。
+- **应用目录随时最新。** 每次加载 `/logalyze` 都先经 `dshRepos` 服务 fetch 各仓库（间隔由 `fetchIntervalMs` 控制，默认每次），再从远端分支最新提交的 git 对象读取应用描述生成应用目录。fetch 不改动任何检出，所以正在进行的分析不会挡住更新。最多等待 `refreshWaitMs`，超时就先用已有的目录，fetch 在后台继续。
+- **代码快照不可变。** 子 Agent 在 `dshRepos` 服务按提交创建的只读快照里工作，派发期间持有快照，结束后释放。
 - **运行目录。** 每次派发在父会话目录下创建 `.logalyze/runs/<runId>/<序号>-<应用 id>/`，下载的日志放在这里，子 Agent 也只在这里写文件；应用仓库对子 Agent 只读。
 - **等待式派发。** 工具等待所有子 Agent 结束后一次返回，一条消息对应一张完整回复；超过派发超时或调用被取消时停止仍在运行的子 Agent。子会话中不提供派发工具。
-- **SKILL 改进（可选，默认关闭）。** 子 Agent 发现应用的日志分析 SKILL 有欠缺时，可以在运行目录写出修改提议；经用户授权后，观象经 [dsh-repo](https://github.com/modestoma/dsh-repo) 把它提交到应用仓库的新分支并创建合并请求（GitLab MR 或 GitHub PR），见 [SKILL 改进](#skill-改进)。
+- **SKILL 改进（可选，默认关闭）。** 子 Agent 发现应用的日志分析 SKILL 有欠缺时，可以在运行目录写出修改提议；经用户授权后，观象经 `dshRepos` 服务把它提交到应用仓库的新分支并创建合并请求（GitLab MR 或 GitHub PR），见 [SKILL 改进](#skill-改进)。
 
 ## 安装与配置
 
@@ -107,7 +107,7 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
       enabled: false                   # 默认关闭
       maxFiles: 16                     # 一次提议最多新增或修改的文件数
       maxFileBytes: 262144             # 提议中单个文件的大小上限
-    skillUpdateAuthor:                 # 可选：SKILL 改进提交的作者；省略时是 dsh-repo 中该主机令牌的主人
+    skillUpdateAuthor:                 # 可选：SKILL 改进提交的作者；省略时是该主机令牌的主人
       name: 观象
       email: logalyze@example.com
     analyze:                           # 日志平台分析接口，见下文
@@ -117,16 +117,13 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
 
 配置在加载时校验，不合法时插件加载失败。git 地址支持 https/http/ssh/git/file URL、`user@host:path` 和绝对路径。
 
-### 仓库拉取与访问令牌
+### 仓库拉取
 
-应用仓库由 [dsh-repo](https://github.com/modestoma/dsh-repo) 拉取，观象自己不运行 git，需要同时安装 dsh-repo 0.1.0-beta.4 或更新版本；没有 dsh-repo 或其服务版本不兼容时仓库拉取失败，原因显示在设置面板。
+观象自己不运行 git，也不依赖其他插件的包。拉取镜像、读取提交、创建只读快照和提交 SKILL 修改都调用运行时的 `dshRepos` 服务（服务版本 1，例如由 [dsh-repo](https://github.com/modestoma/dsh-repo) 提供），它用到的方法见 `src/repos/contract.ts`。没有该服务或服务版本不符时仓库拉取失败，原因显示在设置面板。
 
-- **镜像与快照在 dsh-repo。** 仓库镜像在 dsh-repo 的 `mirror.dir`（默认 `$DSH_HOME/dsh-repo/mirrors`）下，只用来 fetch，不检出文件；git 超时用 dsh-repo 的 `mirror.gitTimeoutMs`。
-- **访问令牌是 dsh-repo 的主机。** https 地址属于 dsh-repo 中某个主机时，拉取自动使用该主机的令牌（GitLab 用户名 `oauth2`）。主机可以写在 dsh-repo 的 `hosts` 中，也可以在 DSH Web「插件 → dsh-repo」页面添加（观象面板「应用仓库」分页的「管理主机与令牌」直接跳过去）；令牌存入 DSH 凭据库。dsh-repo 中的主机或令牌每次变更后，观象自动重新拉取全部仓库。ssh 地址、`user@host:path`、其他主机和本地路径使用本机已有的 git 凭据（SSH key 或 credential helper），不会弹出交互式输入。
+主机、访问令牌和镜像目录都在提供 `dshRepos` 的插件中配置；观象面板「应用仓库」分页的「管理主机与令牌」跳到 dsh-repo 的设置页。该服务报告主机或令牌变更后，观象自动重新拉取全部仓库。
 
-凭据库文件只防其他系统用户。与 DSH 中的模型 API Key 一样，Agent 的命令以同一系统用户运行，文件权限不能把令牌与 Agent 隔离（见 `@deepseek-ai/dsh-credentials-local` 文档）；建议使用权限最小、设置过期时间的令牌。
-
-子 Agent 的命令在 dsh 的文件沙箱中运行：仓库只读，只有父会话的项目目录可写，运行目录就在其中。Linux 的 bubblewrap 沙箱会把 `/tmp` 换成空的临时目录，所以 dsh-repo 的 `mirror.dir` 不要放在 `/tmp` 下，否则子 Agent 的命令看不到仓库。
+子 Agent 的命令在 dsh 的文件沙箱中运行：仓库只读，只有父会话的项目目录可写，运行目录就在其中。Linux 的 bubblewrap 沙箱会把 `/tmp` 换成空的临时目录，所以镜像目录不要放在 `/tmp` 下，否则子 Agent 的命令看不到仓库。
 
 ### 设置面板
 
@@ -145,7 +142,7 @@ DSH Web 左侧栏的「观象」入口打开整页设置面板：
 
 每个应用仓库需要两样东西（完整示例见 [examples/order-service](examples/order-service)，接入步骤与 SKILL 写作要点见[应用仓库接入指南](docs/app-repo-guide.md)）：
 
-`.dsh/logalyze.yaml` 应用描述：
+`.agents/logalyze.yaml` 应用描述：
 
 ```yaml
 id: order-service               # 小写短横线格式，派发与分析请求按它对应应用
@@ -153,28 +150,28 @@ name: 订单服务                   # 显示名，也是子 Agent 的标签
 description: 下单、库存扣减与支付回调
 aliases: [订单, 下单, order]     # 用户对它的其他叫法
 logHints: [order-service, OrderController]   # 能识别本应用日志的字符串
-skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
+skill: log-analysis             # 对应 .agents/skills/log-analysis/SKILL.md
 ```
 
-`.dsh/skills/<skill>/SKILL.md`：这个应用的日志分析流程（如何解压日志包、日志格式、代码结构、常见问题）。它不能设置 `user-invocable: false`，因为派发时用 `/<skill>` 加载。
+`.agents/skills/<skill>/SKILL.md`：这个应用的日志分析流程（如何解压日志包、日志格式、代码结构、常见问题）。它不能设置 `user-invocable: false`，因为派发时用 `/<skill>` 加载。
 
-插件拉取仓库后检查这两个文件；缺失、不合法，或多个仓库声明同一个 id 时，相关应用不可用，原因显示在设置面板。应用描述和 SKILL 必须是普通文件，不能是符号链接。删除地址不会删除 dsh-repo 的本地镜像。
+插件拉取仓库后检查这两个文件；缺失、不合法，或多个仓库声明同一个 id 时，相关应用不可用，原因显示在设置面板。应用描述和 SKILL 必须是普通文件，不能是符号链接。DSH 也从 `.dsh/skills/` 加载项目 SKILL，并且同名时它优先，所以应用仓库不要在 `.dsh/skills/` 下留同名的 SKILL。删除地址不会删除本地镜像。
 
 ## SKILL 改进
 
-开启 `skillUpdates.enabled`（设置面板「高级」→「SKILL 改进」）后，分析中发现的 SKILL 欠缺可以经用户授权后提交为合并请求。提交和创建合并请求经 [dsh-repo](https://github.com/modestoma/dsh-repo) 的 `dshRepos` 服务完成：应用仓库所在的主机要在 dsh-repo 中配置令牌（dsh-repo 的 `hosts` 或「插件 → dsh-repo」页面）；没有该服务或版本不符时工具报错。
+开启 `skillUpdates.enabled`（设置面板「高级」→「SKILL 改进」）后，分析中发现的 SKILL 欠缺可以经用户授权后提交为合并请求。提交和创建合并请求经 `dshRepos` 服务完成，应用仓库所在的主机要在提供该服务的插件中配置令牌；没有该服务或版本不符时工具报错。
 
-1. **子 Agent 写提议。** 子 Agent 的任务消息多出一节说明：把要改的文件从 `.dsh/skills/<skill>/` 复制到运行目录的 `skill-proposal/files/`（保持相对路径）后修改，理由写进 `skill-proposal/reason.md`。仓库对子 Agent 仍然只读。
+1. **子 Agent 写提议。** 子 Agent 的任务消息多出一节说明：把要改的文件从 `.agents/skills/<skill>/` 复制到运行目录的 `skill-proposal/files/`（保持相对路径）后修改，理由写进 `skill-proposal/reason.md`。仓库对子 Agent 仍然只读。
 2. **派发结果标出提议。** 派发结束后，观象检查已完成任务的提议：只接受普通文件和受限的文件名、UTF-8 文本、文件数与大小上限，`SKILL.md` 不能设置 `user-invocable: false`。合格的提议在结果中给出改动行数，并在运行目录写出 `skill-proposal.diff`；不合格的给出原因。
 3. **父 Agent 展示并提交。** 入口 SKILL 让父 Agent 在汇总回复后附上改动和 diff，再调用 `logalyze_propose_skill`（参数为任务的运行目录和一句话摘要）。只接受本次 DSH 运行中由同一会话派发过的任务；应用、仓库和分析时的提交取自派发记录。
 4. **请求授权。** 工具通过 DSH 的审批服务（`ctx.approval`，`@deepseek-ai/dsh-user-approval`）请求一次性授权，说明将提交的仓库、分支、目标分支、改动文件和理由。经 dsh_channels 使用时显示为飞书决策卡片，在 DSH Web 中显示为审批提示；观象与 dsh_channels 之间没有代码依赖。只有「允许」才提交；拒绝、撤回或没有可回答的界面时都不提交。会话的审批策略为 `never`（例如 DSH 的「完全访问」权限模式）时请求一律被拒绝，所以要在「询问」类权限模式下使用；DSH 组合没有审批服务时工具报错。
-5. **提交新分支并创建合并请求。** 观象进程（不是 Agent）经 `dshRepos` 以分析时的提交为起点建新分支 `logalyze/skill-<应用 id>-<改动摘要前缀>`，提交 `.dsh/skills/<skill>/` 下有改动的文件，再创建合入跟踪分支的合并请求，返回它的链接。同一改动的分支已存在时不再请求授权，也不提交；等待授权期间分支被别人建出时同样不提交。从不提交到已有分支或默认分支，合并由仓库的评审流程决定；合并后下次 `/logalyze` 拉取即生效。提交成功但合并请求创建失败时，工具返回分支和失败原因，可以在代码托管平台上手动创建。
+5. **提交新分支并创建合并请求。** 观象进程（不是 Agent）经 `dshRepos` 以分析时的提交为起点建新分支 `logalyze/skill-<应用 id>-<改动摘要前缀>`，提交 `.agents/skills/<skill>/` 下有改动的文件，再创建合入跟踪分支的合并请求，返回它的链接。同一改动的分支已存在时不再请求授权，也不提交；等待授权期间分支被别人建出时同样不提交。从不提交到已有分支或默认分支，合并由仓库的评审流程决定；合并后下次 `/logalyze` 拉取即生效。提交成功但合并请求创建失败时，工具返回分支和失败原因，可以在代码托管平台上手动创建。
 
 注意：
 
-- 支持 GitLab（包括自建实例）和 GitHub。应用仓库的 git 地址（https、ssh 或 `user@host:path`）要能被 dsh-repo 识别为已配置主机上的仓库；dsh-repo 的令牌在 GitLab 上需要 `api` 权限，在 GitHub 上需要 Contents 和 Pull requests 的读写权限。
-- 有写权限的令牌可以改动它能访问的所有项目。建议用只覆盖应用仓库的项目或组访问令牌，设置过期时间，用 dsh-repo 的 `repos` 限定范围，并保护应用仓库的默认分支。
-- 合并请求以 dsh-repo 令牌主人的身份创建，提交作者是 `skillUpdateAuthor`，省略时也是令牌主人。飞书群里点「允许」的人可能不是令牌主人；合并请求描述写明了来源会话与分析提交。
+- 支持 GitLab（包括自建实例）和 GitHub。应用仓库的 git 地址（https、ssh 或 `user@host:path`）要能被 `dshRepos` 识别为已配置主机上的仓库；该主机的令牌在 GitLab 上需要 `api` 权限，在 GitHub 上需要 Contents 和 Pull requests 的读写权限。
+- 有写权限的令牌可以改动它能访问的所有项目。建议用只覆盖应用仓库的项目或组访问令牌，设置过期时间，并保护应用仓库的默认分支。
+- 合并请求以该主机令牌主人的身份创建，提交作者是 `skillUpdateAuthor`，省略时也是令牌主人。飞书群里点「允许」的人可能不是令牌主人；合并请求描述写明了来源会话与分析提交。
 - 日志内容不可信，可能诱导模型写出不当的 SKILL。观象只限制改动范围，内容需要授权的人和合并请求的评审者把关。
 
 ## 日志平台分析接口
@@ -258,7 +255,7 @@ pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + �
 |---|---|
 | `src/index.ts` | Cordis 插件入口 |
 | `src/service.ts` | 生效设置、注册表、入口 SKILL 与派发工具的注册 |
-| `src/repos/` | dsh-repo 服务查找、应用描述校验、应用注册表 |
+| `src/repos/` | `dshRepos` 服务需求与查找、应用描述校验、应用注册表 |
 | `src/skill/entry.ts` | `/logalyze` 入口 SKILL |
 | `src/dispatch/` | 派发工具、日志下载、子 Agent 首条消息 |
 | `src/skill-update/` | SKILL 修改提议的校验、diff、授权与提交 |

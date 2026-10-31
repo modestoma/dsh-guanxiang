@@ -3,7 +3,7 @@
  *
  * - 只接受本进程中由同一会话派发过的任务运行目录；应用、仓库和分析时的提交
  *   取自派发记录，不取自运行目录里可被 Agent 改写的内容。
- * - 只改应用 SKILL 目录 `.dsh/skills/<skill>/` 下的文件，提交以分析时的提交为
+ * - 只改应用 SKILL 目录 `.agents/skills/<skill>/` 下的文件，提交以分析时的提交为
  *   父提交，提交到新分支 `logalyze/skill-<应用 id>-<改动摘要前缀>`，从不提交到
  *   已有分支或默认分支。
  * - 提交和创建合并请求经 dsh-repo 的 `dshRepos` 服务完成，支持 GitLab 与
@@ -19,12 +19,13 @@
 import { randomBytes } from 'node:crypto'
 import { rename, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import type { CommitAuthor } from 'dsh-repo/contract'
 import { z } from 'zod'
 import { describeIssue } from '../config.ts'
 import { isDelegatedAgent } from '../dispatch/tool.ts'
 import type { ContentBlock, HostApproval, ToolDefinition, ToolRunContext } from '../host.ts'
+import type { CommitAuthor } from '../repos/contract.ts'
 import { messageOf, repoErrorCode, requireRepos } from '../repos/lookup.ts'
+import { skillDir } from '../repos/manifest.ts'
 import type { RepoRegistry } from '../repos/registry.ts'
 import type { AppManifest, EditableSettings } from '../settings/contract.ts'
 import { prepareChange } from './change.ts'
@@ -179,10 +180,6 @@ async function replaceFile(path: string, content: string): Promise<void> {
   }
 }
 
-function skillDirOf(app: AppManifest): string {
-  return `.dsh/skills/${app.skill}`
-}
-
 /** Remembers dispatched tasks, checks their proposals, and submits them. */
 export class SkillUpdater {
   private readonly tasks = new Map<string, DispatchedTask>()
@@ -230,7 +227,7 @@ export class SkillUpdater {
     const proposal = await readProposal(task.workDir, this.deps.settings().skillUpdates)
     if (proposal === undefined) return undefined
     const target = this.deps.registry.branchOf(task.url)
-    const change = await prepareChange(requireRepos(this.deps.repos()), { url: task.url, base: task.commit, skillDir: skillDirOf(task.app) }, proposal.files, signal)
+    const change = await prepareChange(requireRepos(this.deps.repos()), { url: task.url, base: task.commit, skillDir: skillDir(task.app.skill) }, proposal.files, signal)
     if (change.files.length === 0) throw new ProposalError(`提议的文件与提交 ${task.commit.slice(0, 12)} 中的 SKILL 相同，没有改动`)
     const diffPath = join(task.workDir, DIFF_FILE)
     await replaceFile(diffPath, change.diff)
@@ -311,7 +308,7 @@ export class SkillUpdater {
     // Only files that differ from the analyzed commit; an unchanged one would be an empty update.
     const changed = new Set(change.files.map(file => file.path))
     const files = prepared.files
-      .map(file => ({ action: 'write' as const, path: `${skillDirOf(task.app)}/${file.path}`, content: file.content }))
+      .map(file => ({ action: 'write' as const, path: `${skillDir(task.app.skill)}/${file.path}`, content: file.content }))
       .filter(file => changed.has(file.path))
     exec.signal.throwIfAborted()
     try {

@@ -8,7 +8,7 @@
  * 改进时的 `logalyze_propose_skill` 工具（经用户授权后经 dsh-repo 把子 Agent
  * 的 SKILL 修改提议提交到新分支并创建合并请求）。应用仓库在设置
  * 面板中只填 git 地址，由插件拉取；应用描述来自各仓库的
- * `.dsh/logalyze.yaml`。另提供日志平台分析接口 `POST /open-api/logalyze`，
+ * `.agents/logalyze.yaml`。另提供日志平台分析接口 `POST /open-api/logalyze`，
  * 经 dsh-channels 的 `feishuTopics` 服务在飞书群话题中开始分析。
  *
  * @module dsh-logalyze
