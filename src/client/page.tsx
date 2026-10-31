@@ -4,7 +4,7 @@
  * 生效，不进草稿；令牌值存入 DSH 凭据库。
  * 仓库拉取中时每 2 秒刷新状态。
  *
- * @module dsh-guanxiang/client/page
+ * @module dsh-logalyze/client/page
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -109,26 +109,26 @@ function formatTime(iso: string | number | undefined): string {
 }
 
 function phasePill(repo: RepoStatusWire | undefined): JSX.Element {
-  if (repo === undefined) return <span className="gx__pill"><span className="gx__dot" />保存后拉取</span>
-  if (repo.phase === 'syncing') return <span className="gx__pill gx__pill--warn"><span className="gx__dot" />拉取中</span>
-  if (repo.available) return <span className="gx__pill gx__pill--ok"><span className="gx__dot" />就绪</span>
-  if (repo.phase === 'ready' || repo.phase === 'failed') return <span className="gx__pill gx__pill--bad"><span className="gx__dot" />不可用</span>
-  return <span className="gx__pill"><span className="gx__dot" />待拉取</span>
+  if (repo === undefined) return <span className="lz__pill"><span className="lz__dot" />保存后拉取</span>
+  if (repo.phase === 'syncing') return <span className="lz__pill lz__pill--warn"><span className="lz__dot" />拉取中</span>
+  if (repo.available) return <span className="lz__pill lz__pill--ok"><span className="lz__dot" />就绪</span>
+  if (repo.phase === 'ready' || repo.phase === 'failed') return <span className="lz__pill lz__pill--bad"><span className="lz__dot" />不可用</span>
+  return <span className="lz__pill"><span className="lz__dot" />待拉取</span>
 }
 
 function Overridden({ keys, name }: { keys: readonly EditableKey[]; name: EditableKey }): JSX.Element | null {
-  return keys.includes(name) ? <span className="gx__tag gx__tag--accent">面板设置</span> : null
+  return keys.includes(name) ? <span className="lz__tag lz__tag--accent">面板设置</span> : null
 }
 
 /**
  * Main-column page for the `main` slot.
  * @returns the page.
  */
-export function GuanxiangPage(): JSX.Element {
+export function LogalyzePage(): JSX.Element {
   return (
-    <section className="gx-page" aria-label={PANEL_TITLE}>
-      <div className="gx-page__content">
-        <GuanxiangPanel />
+    <section className="lz-page" aria-label={PANEL_TITLE}>
+      <div className="lz-page__content">
+        <LogalyzePanel />
       </div>
     </section>
   )
@@ -140,7 +140,7 @@ type Notice = { kind: 'ok' | 'error'; text: string } | undefined
  * Panel body: loads state, edits a draft, saves.
  * @returns the panel.
  */
-export function GuanxiangPanel(): JSX.Element {
+export function LogalyzePanel(): JSX.Element {
   const [state, setState] = useState<StateWire | undefined>()
   const [loadError, setLoadError] = useState<string | undefined>()
   const [draft, setDraft] = useState<Draft | undefined>()
@@ -203,32 +203,32 @@ export function GuanxiangPanel(): JSX.Element {
 
   if (state === undefined || draft === undefined) {
     return (
-      <div className="gx">
+      <div className="lz">
         {loadError === undefined
-          ? <div className="gx__loading">加载中…</div>
-          : <div className="gx__notice gx__notice--error">{loadError} <button type="button" className="gx__btn gx__btn--ghost" onClick={() => { void reload(true) }}>重试</button></div>}
+          ? <div className="lz__loading">加载中…</div>
+          : <div className="lz__notice lz__notice--error">{loadError} <button type="button" className="lz__btn lz__btn--ghost" onClick={() => { void reload(true) }}>重试</button></div>}
       </div>
     )
   }
 
   const available = state.repos.filter(repo => repo.available).length
   return (
-    <div className="gx">
-      <header className="gx__head">
-        <div className="gx__headRow">
-          <h1 className="gx__title">{PANEL_TITLE}</h1>
-          <span className={`gx__pill ${available > 0 ? 'gx__pill--ok' : 'gx__pill--warn'}`}><span className="gx__dot" />{available} 个应用可用</span>
-          {syncing ? <span className="gx__pill gx__pill--warn"><span className="gx__dot" />拉取中</span> : null}
+    <div className="lz">
+      <header className="lz__head">
+        <div className="lz__headRow">
+          <h1 className="lz__title">{PANEL_TITLE}</h1>
+          <span className={`lz__pill ${available > 0 ? 'lz__pill--ok' : 'lz__pill--warn'}`}><span className="lz__dot" />{available} 个应用可用</span>
+          {syncing ? <span className="lz__pill lz__pill--warn"><span className="lz__dot" />拉取中</span> : null}
         </div>
-        <div className="gx__meta">观其象，知其因。在对话中输入 /guanxiang 描述问题并附上日志，观象会按应用派发分析。</div>
-        <div className="gx__tabs" role="tablist">
+        <div className="lz__meta">观其象，知其因。在对话中输入 /logalyze 描述问题并附上日志，观象会按应用派发分析。</div>
+        <div className="lz__tabs" role="tablist">
           {TABS.map(item => (
-            <button key={item.id} type="button" role="tab" className="gx__tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id) }}>{item.label}</button>
+            <button key={item.id} type="button" role="tab" className="lz__tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id) }}>{item.label}</button>
           ))}
         </div>
       </header>
-      {state.overlayError === undefined ? null : <div className="gx__notice gx__notice--error">面板设置文件未生效：{state.overlayError}。保存一次会用当前内容覆盖它。</div>}
-      <div className="gx__body" role="tabpanel">
+      {state.overlayError === undefined ? null : <div className="lz__notice lz__notice--error">面板设置文件未生效：{state.overlayError}。保存一次会用当前内容覆盖它。</div>}
+      <div className="lz__body" role="tabpanel">
         {tab === 'repos' ? <ReposTab draft={draft} setDraft={setDraft} state={state} busy={busy || dirty} onSync={(url) => { void run(() => syncRepos(url), url === undefined ? '已开始重新拉取全部仓库' : '已开始重新拉取', false) }} /> : null}
         {tab === 'tokens'
           ? <TokensTab
@@ -255,11 +255,11 @@ export function GuanxiangPanel(): JSX.Element {
           : null}
         {tab === 'advanced' ? <AdvancedTab draft={draft} setDraft={setDraft} overridden={state.overridden} busy={busy} onReset={() => { void run(resetSettings, '已恢复为 cordis.yml 中的配置', true) }} /> : null}
       </div>
-      {notice === undefined ? null : <div className={`gx__notice gx__notice--${notice.kind}`}>{notice.text}</div>}
-      <div className="gx__saveBar">
-        <span className="gx__saveMsg">{dirty ? '有未保存的修改' : '设置已保存'}</span>
-        <button type="button" className="gx__btn gx__btn--ghost" disabled={!dirty || busy} onClick={() => { setDraft(toDraft(state.settings)); setNotice(undefined) }}>放弃修改</button>
-        <button type="button" className="gx__btn gx__btn--primary" disabled={!dirty || busy} onClick={save}>保存</button>
+      {notice === undefined ? null : <div className={`lz__notice lz__notice--${notice.kind}`}>{notice.text}</div>}
+      <div className="lz__saveBar">
+        <span className="lz__saveMsg">{dirty ? '有未保存的修改' : '设置已保存'}</span>
+        <button type="button" className="lz__btn lz__btn--ghost" disabled={!dirty || busy} onClick={() => { setDraft(toDraft(state.settings)); setNotice(undefined) }}>放弃修改</button>
+        <button type="button" className="lz__btn lz__btn--primary" disabled={!dirty || busy} onClick={save}>保存</button>
       </div>
     </div>
   )
@@ -282,46 +282,46 @@ function ReposTab({ draft, setDraft, state, busy, onSync }: TabProps & { state: 
     setBranch('')
   }
   return (
-    <section className="gx__sec">
-      <h2 className="gx__secTitle">应用仓库 <Overridden keys={state.overridden} name="repos" /></h2>
-      <div className="gx__list">
-        {draft.repos.length === 0 ? <div className="gx__emptyRow">还没有应用仓库。添加 git 地址后保存，观象会把仓库拉取到本机。</div> : null}
+    <section className="lz__sec">
+      <h2 className="lz__secTitle">应用仓库 <Overridden keys={state.overridden} name="repos" /></h2>
+      <div className="lz__list">
+        {draft.repos.length === 0 ? <div className="lz__emptyRow">还没有应用仓库。添加 git 地址后保存，观象会把仓库拉取到本机。</div> : null}
         {draft.repos.map((repo, index) => {
           const current = status.get(repo.url)
           const saved = current !== undefined && current.branch === repo.branch
           return (
-            <div key={repo.url} className="gx__row gx__row--top">
-              <div className="gx__rowText">
-                <div className="gx__rowLabel">
-                  <span className="gx__mono">{repo.url}</span>
-                  {repo.branch === undefined ? null : <span className="gx__tag">{repo.branch}</span>}
+            <div key={repo.url} className="lz__row lz__row--top">
+              <div className="lz__rowText">
+                <div className="lz__rowLabel">
+                  <span className="lz__mono">{repo.url}</span>
+                  {repo.branch === undefined ? null : <span className="lz__tag">{repo.branch}</span>}
                   {phasePill(saved ? current : undefined)}
                 </div>
                 {saved && current.app !== undefined
-                  ? <div className="gx__rowSummary">{current.app.name}（<span className="gx__mono">{current.app.id}</span>）· SKILL <span className="gx__mono">/{current.app.skill}</span>{current.activeRuns > 0 ? ` · ${current.activeRuns} 个分析进行中` : ''}</div>
+                  ? <div className="lz__rowSummary">{current.app.name}（<span className="lz__mono">{current.app.id}</span>）· SKILL <span className="lz__mono">/{current.app.skill}</span>{current.activeRuns > 0 ? ` · ${current.activeRuns} 个分析进行中` : ''}</div>
                   : null}
-                {saved && current.app !== undefined ? <div className="gx__rowSummary">{current.app.description}</div> : null}
+                {saved && current.app !== undefined ? <div className="lz__rowSummary">{current.app.description}</div> : null}
                 {saved && current.commit !== undefined
-                  ? <div className="gx__rowSummary">提交 <span className="gx__mono">{current.commit.slice(0, 8)}</span>（{formatTime(current.commitTime)}）· 拉取于 {formatTime(current.syncedAt)}{current.dir === undefined ? null : <> · <span className="gx__mono">{current.dir}</span></>}</div>
+                  ? <div className="lz__rowSummary">提交 <span className="lz__mono">{current.commit.slice(0, 8)}</span>（{formatTime(current.commitTime)}）· 拉取于 {formatTime(current.syncedAt)}{current.dir === undefined ? null : <> · <span className="lz__mono">{current.dir}</span></>}</div>
                   : null}
-                {saved && current.error !== undefined ? <div className="gx__rowError">{current.error}</div> : null}
+                {saved && current.error !== undefined ? <div className="lz__rowError">{current.error}</div> : null}
               </div>
-              <div className="gx__rowCtl">
-                {saved ? <button type="button" className="gx__btn" disabled={busy || current.phase === 'syncing'} onClick={() => { onSync(repo.url) }}>重新拉取</button> : null}
-                <button type="button" className="gx__btn gx__btn--danger" onClick={() => { setDraft({ ...draft, repos: draft.repos.filter((_, position) => position !== index) }) }}>删除</button>
+              <div className="lz__rowCtl">
+                {saved ? <button type="button" className="lz__btn" disabled={busy || current.phase === 'syncing'} onClick={() => { onSync(repo.url) }}>重新拉取</button> : null}
+                <button type="button" className="lz__btn lz__btn--danger" onClick={() => { setDraft({ ...draft, repos: draft.repos.filter((_, position) => position !== index) }) }}>删除</button>
               </div>
             </div>
           )
         })}
-        <div className="gx__addRow">
-          <input className="gx__input" placeholder="git 地址，例如 git@github.com:example/order-service.git" value={url} onChange={(event) => { setUrl(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
-          <input className="gx__input gx__input--branch" placeholder="分支（可选）" value={branch} onChange={(event) => { setBranch(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
-          <button type="button" className="gx__btn" disabled={url.trim() === ''} onClick={add}>添加</button>
+        <div className="lz__addRow">
+          <input className="lz__input" placeholder="git 地址，例如 git@github.com:example/order-service.git" value={url} onChange={(event) => { setUrl(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
+          <input className="lz__input lz__input--branch" placeholder="分支（可选）" value={branch} onChange={(event) => { setBranch(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
+          <button type="button" className="lz__btn" disabled={url.trim() === ''} onClick={add}>添加</button>
         </div>
       </div>
-      {state.hosts.availability === 'ready' ? null : <div className="gx__notice gx__notice--error">{state.hosts.availability === 'missing' ? '没有加载 dsh-repo 插件，仓库无法拉取。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，仓库无法拉取。'}</div>}
-      <p className="gx__secFoot">由 dsh-repo 拉取到它的镜像目录{state.hosts.mirrorDir === undefined ? '' : `（${state.hosts.mirrorDir}）`}。https 地址使用「访问令牌」中对应主机的令牌，ssh 地址和其他主机使用本机已有的 git 凭据（SSH key 或 credential helper）。不留分支时跟随远端默认分支。每个仓库需包含 <span className="gx__mono">.dsh/guanxiang.yaml</span> 与其中声明的日志分析 SKILL。删除地址不会删除本地镜像。</p>
-      {state.repos.length > 0 ? <div><button type="button" className="gx__btn" disabled={busy} onClick={() => { onSync() }}>重新拉取全部</button></div> : null}
+      {state.hosts.availability === 'ready' ? null : <div className="lz__notice lz__notice--error">{state.hosts.availability === 'missing' ? '没有加载 dsh-repo 插件，仓库无法拉取。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，仓库无法拉取。'}</div>}
+      <p className="lz__secFoot">由 dsh-repo 拉取到它的镜像目录{state.hosts.mirrorDir === undefined ? '' : `（${state.hosts.mirrorDir}）`}。https 地址使用「访问令牌」中对应主机的令牌，ssh 地址和其他主机使用本机已有的 git 凭据（SSH key 或 credential helper）。不留分支时跟随远端默认分支。每个仓库需包含 <span className="lz__mono">.dsh/logalyze.yaml</span> 与其中声明的日志分析 SKILL。删除地址不会删除本地镜像。</p>
+      {state.repos.length > 0 ? <div><button type="button" className="lz__btn" disabled={busy} onClick={() => { onSync() }}>重新拉取全部</button></div> : null}
     </section>
   )
 }
@@ -335,11 +335,11 @@ const HOST_KINDS: readonly { id: HostKind; label: string }[] = [
 ]
 
 function tokenPill(token: TokenStatusWire | undefined): JSX.Element {
-  if (token === undefined) return <span className="gx__pill"><span className="gx__dot" />保存后设置令牌</span>
-  if (token.error !== undefined) return <span className="gx__pill gx__pill--bad"><span className="gx__dot" />无法读取</span>
-  if (!token.configured) return <span className="gx__pill gx__pill--warn"><span className="gx__dot" />未设置令牌</span>
+  if (token === undefined) return <span className="lz__pill"><span className="lz__dot" />保存后设置令牌</span>
+  if (token.error !== undefined) return <span className="lz__pill lz__pill--bad"><span className="lz__dot" />无法读取</span>
+  if (!token.configured) return <span className="lz__pill lz__pill--warn"><span className="lz__dot" />未设置令牌</span>
   const source = token.source === undefined || token.source === 'file' ? undefined : TOKEN_SOURCES[token.source] ?? token.source
-  return <span className="gx__pill gx__pill--ok"><span className="gx__dot" />已设置{source === undefined ? '' : `（来自${source}）`}</span>
+  return <span className="lz__pill lz__pill--ok"><span className="lz__dot" />已设置{source === undefined ? '' : `（来自${source}）`}</span>
 }
 
 function TokensTab({ state, busy, onAdd, onSave, onClear, onRemove }: {
@@ -375,59 +375,59 @@ function TokensTab({ state, busy, onAdd, onSave, onClear, onRemove }: {
   const submitOnEnter = (event: { key: string }): void => { if (event.key === 'Enter') add() }
   if (availability !== 'ready') {
     return (
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">访问令牌</h2>
-        <div className="gx__notice gx__notice--error">{availability === 'missing' ? '访问令牌由 dsh-repo 插件管理，当前没有加载 dsh-repo。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，不能在这里管理访问令牌。'}</div>
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">访问令牌</h2>
+        <div className="lz__notice lz__notice--error">{availability === 'missing' ? '访问令牌由 dsh-repo 插件管理，当前没有加载 dsh-repo。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，不能在这里管理访问令牌。'}</div>
       </section>
     )
   }
   return (
-    <section className="gx__sec">
-      <h2 className="gx__secTitle">访问令牌</h2>
-      {state.credentialsAvailable ? null : <div className="gx__notice gx__notice--error">当前 DSH 组合没有加载凭据服务（@deepseek-ai/dsh-credentials-local），无法保存或读取令牌。</div>}
-      {error === undefined ? null : <div className="gx__notice gx__notice--error">无法读取 dsh-repo 的主机：{error}</div>}
-      <div className="gx__list">
-        {hosts.length === 0 ? <div className="gx__emptyRow">还没有主机。用 https 地址拉取私有仓库时，在下面填入 GitLab 或 GitHub 地址、别名和令牌。</div> : null}
+    <section className="lz__sec">
+      <h2 className="lz__secTitle">访问令牌</h2>
+      {state.credentialsAvailable ? null : <div className="lz__notice lz__notice--error">当前 DSH 组合没有加载凭据服务（@deepseek-ai/dsh-credentials-local），无法保存或读取令牌。</div>}
+      {error === undefined ? null : <div className="lz__notice lz__notice--error">无法读取 dsh-repo 的主机：{error}</div>}
+      <div className="lz__list">
+        {hosts.length === 0 ? <div className="lz__emptyRow">还没有主机。用 https 地址拉取私有仓库时，在下面填入 GitLab 或 GitHub 地址、别名和令牌。</div> : null}
         {hosts.map((host) => {
           const value = values[host.url] ?? ''
           return (
-            <div key={host.url} className="gx__row gx__row--top">
-              <div className="gx__rowText">
-                <div className="gx__rowLabel">
+            <div key={host.url} className="lz__row lz__row--top">
+              <div className="lz__rowText">
+                <div className="lz__rowLabel">
                   <span>{host.alias ?? host.url}</span>
-                  <span className="gx__tag">{host.kind === 'github' ? 'GitHub' : 'GitLab'}</span>
-                  {host.origin === 'config' ? <span className="gx__tag">cordis.yml</span> : null}
+                  <span className="lz__tag">{host.kind === 'github' ? 'GitHub' : 'GitLab'}</span>
+                  {host.origin === 'config' ? <span className="lz__tag">cordis.yml</span> : null}
                   {tokenPill(host.token)}
                 </div>
-                {host.alias === undefined ? null : <div className="gx__rowSummary gx__mono">{host.url}</div>}
-                {host.token.error === undefined ? null : <div className="gx__rowError">{host.token.error}</div>}
+                {host.alias === undefined ? null : <div className="lz__rowSummary lz__mono">{host.url}</div>}
+                {host.token.error === undefined ? null : <div className="lz__rowError">{host.token.error}</div>}
                 {host.token.writable
                   ? (
-                      <div className="gx__addRow gx__addRow--flush">
-                        <input className="gx__input gx__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder={host.token.configured ? '输入新令牌以替换' : '粘贴令牌'} value={value} onChange={(event) => { setValues({ ...values, [host.url]: event.target.value }) }} onKeyDown={(event) => { if (event.key === 'Enter') save(host.url) }} />
-                        <button type="button" className="gx__btn" disabled={busy || value.trim() === ''} onClick={() => { save(host.url) }}>保存令牌</button>
-                        {host.token.configured && host.token.source === 'file' ? <button type="button" className="gx__btn gx__btn--ghost" disabled={busy} onClick={() => { onClear(host.url) }}>清除</button> : null}
+                      <div className="lz__addRow lz__addRow--flush">
+                        <input className="lz__input lz__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder={host.token.configured ? '输入新令牌以替换' : '粘贴令牌'} value={value} onChange={(event) => { setValues({ ...values, [host.url]: event.target.value }) }} onKeyDown={(event) => { if (event.key === 'Enter') save(host.url) }} />
+                        <button type="button" className="lz__btn" disabled={busy || value.trim() === ''} onClick={() => { save(host.url) }}>保存令牌</button>
+                        {host.token.configured && host.token.source === 'file' ? <button type="button" className="lz__btn lz__btn--ghost" disabled={busy} onClick={() => { onClear(host.url) }}>清除</button> : null}
                       </div>
                     )
                   : null}
               </div>
-              <div className="gx__rowCtl">
-                {host.origin === 'added' ? <button type="button" className="gx__btn gx__btn--danger" disabled={busy} onClick={() => { onRemove(host.url) }}>删除</button> : null}
+              <div className="lz__rowCtl">
+                {host.origin === 'added' ? <button type="button" className="lz__btn lz__btn--danger" disabled={busy} onClick={() => { onRemove(host.url) }}>删除</button> : null}
               </div>
             </div>
           )
         })}
-        <div className="gx__addForm">
-          <div className="gx__addRow gx__addRow--flush">
-            <label className="gx__field">类型<select className="gx__input" value={kind} onChange={(event) => { setKind(event.target.value as HostKind) }}>{HOST_KINDS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-            <label className="gx__field">地址<input className="gx__input" placeholder={kind === 'github' ? 'https://github.com' : 'https://gitlab.example.com'} value={url} onChange={(event) => { setUrl(event.target.value) }} onKeyDown={submitOnEnter} /></label>
-            <label className="gx__field">别名<input className="gx__input" placeholder="例如 公司 GitLab" value={alias} onChange={(event) => { setAlias(event.target.value) }} onKeyDown={submitOnEnter} /></label>
-            <label className="gx__field">令牌<input className="gx__input gx__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder="粘贴个人访问令牌" value={token} onChange={(event) => { setToken(event.target.value) }} onKeyDown={submitOnEnter} /></label>
-            <button type="button" className="gx__btn gx__btn--end" disabled={busy || !complete} onClick={add}>添加</button>
+        <div className="lz__addForm">
+          <div className="lz__addRow lz__addRow--flush">
+            <label className="lz__field">类型<select className="lz__input" value={kind} onChange={(event) => { setKind(event.target.value as HostKind) }}>{HOST_KINDS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+            <label className="lz__field">地址<input className="lz__input" placeholder={kind === 'github' ? 'https://github.com' : 'https://gitlab.example.com'} value={url} onChange={(event) => { setUrl(event.target.value) }} onKeyDown={submitOnEnter} /></label>
+            <label className="lz__field">别名<input className="lz__input" placeholder="例如 公司 GitLab" value={alias} onChange={(event) => { setAlias(event.target.value) }} onKeyDown={submitOnEnter} /></label>
+            <label className="lz__field">令牌<input className="lz__input lz__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder="粘贴个人访问令牌" value={token} onChange={(event) => { setToken(event.target.value) }} onKeyDown={submitOnEnter} /></label>
+            <button type="button" className="lz__btn lz__btn--end" disabled={busy || !complete} onClick={add}>添加</button>
           </div>
         </div>
       </div>
-      <p className="gx__secFoot">主机和令牌由 dsh-repo 管理，添加、删除和保存令牌立即生效，不需要点保存。该主机下的 https 仓库使用对应令牌，ssh 地址不受影响。GitLab 拉取需要 read_repository 权限，开启 SKILL 改进时需要 api 权限；GitHub 需要 Contents 与 Pull requests 读写权限。令牌保存在 DSH 凭据库（默认 $DSH_HOME/.credentials.yaml，仅本机用户可读），面板只显示是否已设置。cordis.yml 中配置的主机只能在这里更新令牌。</p>
+      <p className="lz__secFoot">主机和令牌由 dsh-repo 管理，添加、删除和保存令牌立即生效，不需要点保存。该主机下的 https 仓库使用对应令牌，ssh 地址不受影响。GitLab 拉取需要 read_repository 权限，开启 SKILL 改进时需要 api 权限；GitHub 需要 Contents 与 Pull requests 读写权限。令牌保存在 DSH 凭据库（默认 $DSH_HOME/.credentials.yaml，仅本机用户可读），面板只显示是否已设置。cordis.yml 中配置的主机只能在这里更新令牌。</p>
     </section>
   )
 }
@@ -442,26 +442,26 @@ function DownloadTab({ draft, setDraft, overridden }: TabProps & { overridden: r
   }
   return (
     <>
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">允许下载的域名 <Overridden keys={overridden} name="download" /></h2>
-        <div className="gx__list">
-          {draft.allowedHosts.length === 0 ? <div className="gx__emptyRow">未配置域名，消息中的日志下载链接不会被下载。</div> : null}
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">允许下载的域名 <Overridden keys={overridden} name="download" /></h2>
+        <div className="lz__list">
+          {draft.allowedHosts.length === 0 ? <div className="lz__emptyRow">未配置域名，消息中的日志下载链接不会被下载。</div> : null}
           {draft.allowedHosts.map(item => (
-            <div key={item} className="gx__row">
-              <div className="gx__rowText"><span className="gx__mono">{item}</span></div>
-              <div className="gx__rowCtl"><button type="button" className="gx__btn gx__btn--danger" onClick={() => { setDraft({ ...draft, allowedHosts: draft.allowedHosts.filter(entry => entry !== item) }) }}>删除</button></div>
+            <div key={item} className="lz__row">
+              <div className="lz__rowText"><span className="lz__mono">{item}</span></div>
+              <div className="lz__rowCtl"><button type="button" className="lz__btn lz__btn--danger" onClick={() => { setDraft({ ...draft, allowedHosts: draft.allowedHosts.filter(entry => entry !== item) }) }}>删除</button></div>
             </div>
           ))}
-          <div className="gx__addRow">
-            <input className="gx__input" placeholder="主机名，例如 oss.example.com" value={host} onChange={(event) => { setHost(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
-            <button type="button" className="gx__btn" disabled={host.trim() === ''} onClick={add}>添加</button>
+          <div className="lz__addRow">
+            <input className="lz__input" placeholder="主机名，例如 oss.example.com" value={host} onChange={(event) => { setHost(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') add() }} />
+            <button type="button" className="lz__btn" disabled={host.trim() === ''} onClick={add}>添加</button>
           </div>
         </div>
-        <p className="gx__secFoot">只填主机名，同时允许它的子域名。下载不携带任何鉴权信息，每次重定向都会重新校验域名。</p>
+        <p className="lz__secFoot">只填主机名，同时允许它的子域名。下载不携带任何鉴权信息，每次重定向都会重新校验域名。</p>
       </section>
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">限制</h2>
-        <div className="gx__list">
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">限制</h2>
+        <div className="lz__list">
           <NumberRow label="单文件大小上限" unit="MB" value={draft.maxMb} onChange={(value) => { setDraft({ ...draft, maxMb: value }) }} />
           <NumberRow label="单文件下载超时" unit="秒" value={draft.timeoutSec} onChange={(value) => { setDraft({ ...draft, timeoutSec: value }) }} />
         </div>
@@ -471,9 +471,9 @@ function DownloadTab({ draft, setDraft, overridden }: TabProps & { overridden: r
 }
 
 const TOPICS_STATUS: Readonly<Record<AnalyzeWire['topics'], { pill: string; text: string }>> = {
-  ready: { pill: 'gx__pill--ok', text: '飞书渠道就绪' },
-  missing: { pill: 'gx__pill--bad', text: '未找到飞书渠道' },
-  incompatible: { pill: 'gx__pill--bad', text: '飞书渠道版本不兼容' },
+  ready: { pill: 'lz__pill--ok', text: '飞书渠道就绪' },
+  missing: { pill: 'lz__pill--bad', text: '未找到飞书渠道' },
+  incompatible: { pill: 'lz__pill--bad', text: '飞书渠道版本不兼容' },
 }
 
 function AnalyzeTab({ draft, setDraft, analyze, credentialsAvailable, overridden, busy, onSave, onClear }: TabProps & {
@@ -495,29 +495,29 @@ function AnalyzeTab({ draft, setDraft, analyze, credentialsAvailable, overridden
   const endpoint = new URL(analyze.route.slice(1), document.baseURI).href
   return (
     <>
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">日志平台分析接口</h2>
-        <div className="gx__list">
-          <div className="gx__row">
-            <div className="gx__rowText">
-              <div className="gx__rowLabel">开启接口 <Overridden keys={overridden} name="analyze" /><span className={`gx__pill ${topics.pill}`}><span className="gx__dot" />{topics.text}</span></div>
-              <div className="gx__rowSummary">日志平台调用接口后，观象经飞书渠道（dsh-channels）在目标群发出分析卡片，并在卡片下的话题里开始分析；群内成员都可以在话题里继续追问。关闭时接口回复 404。</div>
-              {analyze.topics === 'ready' ? null : <div className="gx__rowError">{analyze.topics === 'missing' ? '接口需要加载 dsh-channels。' : '请把观象与 dsh-channels 升级到相互兼容的版本。'}</div>}
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">日志平台分析接口</h2>
+        <div className="lz__list">
+          <div className="lz__row">
+            <div className="lz__rowText">
+              <div className="lz__rowLabel">开启接口 <Overridden keys={overridden} name="analyze" /><span className={`lz__pill ${topics.pill}`}><span className="lz__dot" />{topics.text}</span></div>
+              <div className="lz__rowSummary">日志平台调用接口后，观象经飞书渠道（dsh-channels）在目标群发出分析卡片，并在卡片下的话题里开始分析；群内成员都可以在话题里继续追问。关闭时接口回复 404。</div>
+              {analyze.topics === 'ready' ? null : <div className="lz__rowError">{analyze.topics === 'missing' ? '接口需要加载 dsh-channels。' : '请把观象与 dsh-channels 升级到相互兼容的版本。'}</div>}
             </div>
-            <div className="gx__rowCtl"><input type="checkbox" className="gx__check" aria-label="开启分析接口" checked={draft.analyzeEnabled} onChange={(event) => { setDraft({ ...draft, analyzeEnabled: event.target.checked }) }} /></div>
+            <div className="lz__rowCtl"><input type="checkbox" className="lz__check" aria-label="开启分析接口" checked={draft.analyzeEnabled} onChange={(event) => { setDraft({ ...draft, analyzeEnabled: event.target.checked }) }} /></div>
           </div>
-          <div className="gx__row gx__row--top">
-            <div className="gx__rowText">
-              <div className="gx__rowLabel">访问令牌 <span className="gx__tag gx__mono">{analyze.tokenEnv}</span>{credentialsAvailable ? tokenPill(token) : null}</div>
-              <div className="gx__rowSummary">日志平台以 <span className="gx__mono">Authorization: Bearer &lt;令牌&gt;</span> 调用接口。令牌未设置时接口回复 503。</div>
-              {credentialsAvailable ? null : <div className="gx__rowError">当前 DSH 组合没有加载凭据服务（@deepseek-ai/dsh-credentials-local），无法保存或读取令牌。</div>}
-              {token?.error === undefined ? null : <div className="gx__rowError">{token.error}</div>}
+          <div className="lz__row lz__row--top">
+            <div className="lz__rowText">
+              <div className="lz__rowLabel">访问令牌 <span className="lz__tag lz__mono">{analyze.tokenEnv}</span>{credentialsAvailable ? tokenPill(token) : null}</div>
+              <div className="lz__rowSummary">日志平台以 <span className="lz__mono">Authorization: Bearer &lt;令牌&gt;</span> 调用接口。令牌未设置时接口回复 503。</div>
+              {credentialsAvailable ? null : <div className="lz__rowError">当前 DSH 组合没有加载凭据服务（@deepseek-ai/dsh-credentials-local），无法保存或读取令牌。</div>}
+              {token?.error === undefined ? null : <div className="lz__rowError">{token.error}</div>}
               {token !== undefined && token.writable
                 ? (
-                    <div className="gx__addRow gx__addRow--flush">
-                      <input className="gx__input gx__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder={token.configured ? '输入新令牌以替换' : '粘贴令牌'} value={value} onChange={(event) => { setValue(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') save() }} />
-                      <button type="button" className="gx__btn" disabled={busy || value.trim() === ''} onClick={save}>保存令牌</button>
-                      {token.configured && token.source === 'file' ? <button type="button" className="gx__btn gx__btn--ghost" disabled={busy} onClick={onClear}>清除</button> : null}
+                    <div className="lz__addRow lz__addRow--flush">
+                      <input className="lz__input lz__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder={token.configured ? '输入新令牌以替换' : '粘贴令牌'} value={value} onChange={(event) => { setValue(event.target.value) }} onKeyDown={(event) => { if (event.key === 'Enter') save() }} />
+                      <button type="button" className="lz__btn" disabled={busy || value.trim() === ''} onClick={save}>保存令牌</button>
+                      {token.configured && token.source === 'file' ? <button type="button" className="lz__btn lz__btn--ghost" disabled={busy} onClick={onClear}>清除</button> : null}
                     </div>
                   )
                 : null}
@@ -525,13 +525,13 @@ function AnalyzeTab({ draft, setDraft, analyze, credentialsAvailable, overridden
           </div>
         </div>
       </section>
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">调用方式</h2>
-        <div className="gx__list">
-          <div className="gx__row"><div className="gx__rowText"><div className="gx__rowLabel">地址</div><div className="gx__rowSummary gx__mono">POST {endpoint}</div></div></div>
-          <div className="gx__row"><div className="gx__rowText"><div className="gx__rowLabel">请求头</div><div className="gx__rowSummary gx__mono">Authorization: Bearer &lt;令牌&gt; · Idempotency-Key: &lt;1-200 个可见 ASCII 字符&gt; · Content-Type: application/json</div></div></div>
-          <div className="gx__row"><div className="gx__rowText"><div className="gx__rowLabel">请求体</div><div className="gx__rowSummary gx__mono">requesterUserId, triggeredAt, app, errorCode, logDetails[{'{'}name, url{'}'}], chatId, prompt</div></div></div>
-          <div className="gx__row"><div className="gx__rowText"><div className="gx__rowLabel">响应</div><div className="gx__rowSummary">202 已发出分析卡片（同一 Idempotency-Key 重试返回同一张卡片）；400/401/404/405/409/413/415 请求问题；403 目标群未授权；502 卡片发送失败；503 飞书未连接或令牌未设置。字段说明见观象 README。</div></div></div>
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">调用方式</h2>
+        <div className="lz__list">
+          <div className="lz__row"><div className="lz__rowText"><div className="lz__rowLabel">地址</div><div className="lz__rowSummary lz__mono">POST {endpoint}</div></div></div>
+          <div className="lz__row"><div className="lz__rowText"><div className="lz__rowLabel">请求头</div><div className="lz__rowSummary lz__mono">Authorization: Bearer &lt;令牌&gt; · Idempotency-Key: &lt;1-200 个可见 ASCII 字符&gt; · Content-Type: application/json</div></div></div>
+          <div className="lz__row"><div className="lz__rowText"><div className="lz__rowLabel">请求体</div><div className="lz__rowSummary lz__mono">requesterUserId, triggeredAt, app, errorCode, logDetails[{'{'}name, url{'}'}], chatId, prompt</div></div></div>
+          <div className="lz__row"><div className="lz__rowText"><div className="lz__rowLabel">响应</div><div className="lz__rowSummary">202 已发出分析卡片（同一 Idempotency-Key 重试返回同一张卡片）；400/401/404/405/409/413/415 请求问题；403 目标群未授权；502 卡片发送失败；503 飞书未连接或令牌未设置。字段说明见观象 README。</div></div></div>
         </div>
       </section>
     </>
@@ -541,42 +541,42 @@ function AnalyzeTab({ draft, setDraft, analyze, credentialsAvailable, overridden
 function AdvancedTab({ draft, setDraft, overridden, busy, onReset }: TabProps & { overridden: readonly EditableKey[]; busy: boolean; onReset: () => void }): JSX.Element {
   return (
     <>
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">仓库</h2>
-        <div className="gx__list">
-          <NumberRow label="更新间隔" summary="输入 /guanxiang 时，距上次拉取超过该时间的仓库会先更新；0 表示每次都更新。" unit="分钟" value={draft.fetchIntervalMin} overridden={overridden.includes('fetchIntervalMs')} onChange={(value) => { setDraft({ ...draft, fetchIntervalMin: value }) }} />
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">仓库</h2>
+        <div className="lz__list">
+          <NumberRow label="更新间隔" summary="输入 /logalyze 时，距上次拉取超过该时间的仓库会先更新；0 表示每次都更新。" unit="分钟" value={draft.fetchIntervalMin} overridden={overridden.includes('fetchIntervalMs')} onChange={(value) => { setDraft({ ...draft, fetchIntervalMin: value }) }} />
         </div>
       </section>
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">派发</h2>
-        <div className="gx__list">
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">派发</h2>
+        <div className="lz__list">
           <NumberRow label="单次应用数上限" summary="一次派发最多同时分析的应用数，不应超过 DSH 的活动子 Agent 上限（默认 8）。" unit="个" value={draft.maxAppsPerRequest} overridden={overridden.includes('maxAppsPerRequest')} onChange={(value) => { setDraft({ ...draft, maxAppsPerRequest: value }) }} />
           <NumberRow label="派发超时" summary="等待全部子 Agent 的最长时间，超时后停止仍在运行的子 Agent。" unit="分钟" value={draft.dispatchTimeoutMin} overridden={overridden.includes('dispatchTimeoutMs')} onChange={(value) => { setDraft({ ...draft, dispatchTimeoutMin: value }) }} />
         </div>
       </section>
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">SKILL 改进</h2>
-        <div className="gx__list">
-          <div className="gx__row">
-            <div className="gx__rowText">
-              <div className="gx__rowLabel">允许提出 SKILL 修改 <Overridden keys={overridden} name="skillUpdates" /></div>
-              <div className="gx__rowSummary">子 Agent 发现应用的日志分析 SKILL 有欠缺时可以写出修改提议；经用户授权后，观象经 dsh-repo 把它提交到新分支并创建合并请求（GitLab 或 GitHub，需要安装 dsh-repo 并配置该仓库主机的令牌）。</div>
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">SKILL 改进</h2>
+        <div className="lz__list">
+          <div className="lz__row">
+            <div className="lz__rowText">
+              <div className="lz__rowLabel">允许提出 SKILL 修改 <Overridden keys={overridden} name="skillUpdates" /></div>
+              <div className="lz__rowSummary">子 Agent 发现应用的日志分析 SKILL 有欠缺时可以写出修改提议；经用户授权后，观象经 dsh-repo 把它提交到新分支并创建合并请求（GitLab 或 GitHub，需要安装 dsh-repo 并配置该仓库主机的令牌）。</div>
             </div>
-            <div className="gx__rowCtl"><input type="checkbox" className="gx__check" aria-label="允许提出 SKILL 修改" checked={draft.skillUpdatesEnabled} onChange={(event) => { setDraft({ ...draft, skillUpdatesEnabled: event.target.checked }) }} /></div>
+            <div className="lz__rowCtl"><input type="checkbox" className="lz__check" aria-label="允许提出 SKILL 修改" checked={draft.skillUpdatesEnabled} onChange={(event) => { setDraft({ ...draft, skillUpdatesEnabled: event.target.checked }) }} /></div>
           </div>
           <NumberRow label="提议文件数上限" unit="个" value={draft.skillMaxFiles} onChange={(value) => { setDraft({ ...draft, skillMaxFiles: value }) }} />
           <NumberRow label="提议单文件大小上限" unit="KB" value={draft.skillMaxKb} onChange={(value) => { setDraft({ ...draft, skillMaxKb: value }) }} />
         </div>
       </section>
-      <section className="gx__sec">
-        <h2 className="gx__secTitle">面板设置</h2>
-        <div className="gx__list">
-          <div className="gx__row">
-            <div className="gx__rowText">
-              <div className="gx__rowLabel">恢复 cordis.yml 配置</div>
-              <div className="gx__rowSummary">删除面板保存的全部设置（$DSH_HOME/guanxiang/settings.json 中的覆盖值）。</div>
+      <section className="lz__sec">
+        <h2 className="lz__secTitle">面板设置</h2>
+        <div className="lz__list">
+          <div className="lz__row">
+            <div className="lz__rowText">
+              <div className="lz__rowLabel">恢复 cordis.yml 配置</div>
+              <div className="lz__rowSummary">删除面板保存的全部设置（$DSH_HOME/logalyze/settings.json 中的覆盖值）。</div>
             </div>
-            <div className="gx__rowCtl"><button type="button" className="gx__btn gx__btn--danger" disabled={busy || overridden.length === 0} onClick={onReset}>恢复</button></div>
+            <div className="lz__rowCtl"><button type="button" className="lz__btn lz__btn--danger" disabled={busy || overridden.length === 0} onClick={onReset}>恢复</button></div>
           </div>
         </div>
       </section>
@@ -586,14 +586,14 @@ function AdvancedTab({ draft, setDraft, overridden, busy, onReset }: TabProps & 
 
 function NumberRow({ label, summary, unit, value, overridden = false, onChange }: { label: string; summary?: string; unit: string; value: string; overridden?: boolean; onChange: (value: string) => void }): JSX.Element {
   return (
-    <div className="gx__row">
-      <div className="gx__rowText">
-        <div className="gx__rowLabel">{label}{overridden ? <span className="gx__tag gx__tag--accent">面板设置</span> : null}</div>
-        {summary === undefined ? null : <div className="gx__rowSummary">{summary}</div>}
+    <div className="lz__row">
+      <div className="lz__rowText">
+        <div className="lz__rowLabel">{label}{overridden ? <span className="lz__tag lz__tag--accent">面板设置</span> : null}</div>
+        {summary === undefined ? null : <div className="lz__rowSummary">{summary}</div>}
       </div>
-      <div className="gx__rowCtl">
-        <input className="gx__input gx__input--num" inputMode="decimal" value={value} onChange={(event) => { onChange(event.target.value) }} />
-        <span className="gx__unit">{unit}</span>
+      <div className="lz__rowCtl">
+        <input className="lz__input lz__input--num" inputMode="decimal" value={value} onChange={(event) => { onChange(event.target.value) }} />
+        <span className="lz__unit">{unit}</span>
       </div>
     </div>
   )

@@ -8,7 +8,7 @@
  * `Idempotency-Key`、媒体类型、请求体大小和 JSON 校验；通过后交给
  * `feishuTopics`。请求体、令牌和提示词都不写日志。
  *
- * @module dsh-guanxiang/analyze/server
+ * @module dsh-logalyze/analyze/server
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto'
@@ -167,7 +167,7 @@ export function mountAnalyzeRoute(ctx: HostContext, gate: AnalyzeGate): void {
     if (server === undefined) return
     const topics = lookupTopics(scope.get?.(FEISHU_TOPICS_SERVICE))
     if (topics.availability !== 'ready') {
-      if (topics.availability === 'incompatible') ctx.logger?.warn?.('guanxiang: dsh-channels 的 feishuTopics 服务版本与观象不兼容，分析接口未注册；请把两者升级到相互兼容的版本')
+      if (topics.availability === 'incompatible') ctx.logger?.warn?.('logalyze: dsh-channels 的 feishuTopics 服务版本与观象不兼容，分析接口未注册；请把两者升级到相互兼容的版本')
       return
     }
     const { service } = topics
@@ -179,12 +179,12 @@ export function mountAnalyzeRoute(ctx: HostContext, gate: AnalyzeGate): void {
         try {
           await handleAnalyzeHttp(req, res, gate, launch)
         } catch (error) {
-          ctx.logger?.warn?.('guanxiang: 分析请求处理失败：%s', String(error))
+          ctx.logger?.warn?.('logalyze: 分析请求处理失败：%s', String(error))
           if (!res.headersSent) refuse(res, 500, `分析请求处理失败：${String(error)}`)
           else res.destroy()
         }
       },
-    }), 'guanxiang: analyze route')
+    }), 'logalyze: analyze route')
   }
   if (typeof ctx.inject === 'function') {
     ctx.inject(['webServer', FEISHU_TOPICS_SERVICE], attach)

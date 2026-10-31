@@ -5,7 +5,7 @@
  * 只从 `@modesto_ma/dsh-channels/topics` 引入类型；服务在运行时经
  * `ctx.get('feishuTopics')` 取得，版本不符时不调用。
  *
- * @module dsh-guanxiang/analyze/topics
+ * @module dsh-logalyze/analyze/topics
  */
 
 import type {

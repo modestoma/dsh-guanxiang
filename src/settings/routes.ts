@@ -3,13 +3,13 @@
  * 每个请求先经宿主 `connection.requestRejection`（与 DSH `/api` 相同的
  * Host/Origin 校验和登录 cookie 鉴权）；写操作另做同源校验。
  *
- * @module dsh-guanxiang/settings/routes
+ * @module dsh-logalyze/settings/routes
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { HostContext, HostRequestGate, HostWebServer } from '../host.ts'
 import { SettingsError } from '../service.ts'
-import type { GuanxiangService } from '../service.ts'
+import type { LogalyzeService } from '../service.ts'
 import { HOST_TOKEN_ROUTE, HOSTS_ROUTE, SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE, TOKEN_ROUTE } from './contract.ts'
 
 type WebHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
@@ -113,7 +113,7 @@ function guarded(gate: HostRequestGate, methods: readonly string[], handler: Web
  * @param service - plugin runtime.
  * @returns disposer removing every route.
  */
-export function registerSettingsRoutes(server: HostWebServer, gate: HostRequestGate, service: GuanxiangService): () => void {
+export function registerSettingsRoutes(server: HostWebServer, gate: HostRequestGate, service: LogalyzeService): () => void {
   const disposers = [
     server.register({
       kind: 'exact',
@@ -178,12 +178,12 @@ export function registerSettingsRoutes(server: HostWebServer, gate: HostRequestG
  * @param ctx - plugin context.
  * @param service - plugin runtime.
  */
-export function mountSettingsRoutes(ctx: HostContext, service: GuanxiangService): void {
+export function mountSettingsRoutes(ctx: HostContext, service: LogalyzeService): void {
   const attach = (webCtx: HostContext): void => {
     const server = webCtx.get?.('webServer') as HostWebServer | undefined
     const gate = webCtx.get?.('connection') as HostRequestGate | undefined
     if (server === undefined || gate === undefined) return
-    webCtx.effect(() => registerSettingsRoutes(server, gate, service), 'guanxiang: settings routes')
+    webCtx.effect(() => registerSettingsRoutes(server, gate, service), 'logalyze: settings routes')
   }
   if (typeof ctx.inject === 'function') {
     ctx.inject(['webServer', 'connection'], attach)

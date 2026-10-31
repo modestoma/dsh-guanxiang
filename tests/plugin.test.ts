@@ -31,7 +31,7 @@ afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => clea
  * `services` add or replace context services (`dshRepos: undefined` removes it).
  */
 async function harness(services: Record<string, unknown> = {}, options: { git?: GitRunner } = {}): Promise<Harness> {
-  const { dir, cleanup } = await tempDir('guanxiang-dsh-repo-')
+  const { dir, cleanup } = await tempDir('logalyze-dsh-repo-')
   const credentials = services.credentials as ReturnType<typeof memoryCredentials> | undefined ?? memoryCredentials()
   const repos = createRepos(dir, {}, credentials, options.git)
   services = { dshRepos: repos, ...services }
@@ -100,8 +100,8 @@ describe('plugin', () => {
     const h = await harness()
     cleanups.push(h.dispose)
     apply(h.ctx, { repos: [{ url: origin }] }, { overlayPath: join(dir, 'settings.json') })
-    expect(h.skills.map(skill => skill.name)).toEqual(['dsh-guanxiang'])
-    expect(h.tools.map(tool => tool.definition.name)).toEqual(['guanxiang_dispatch', 'guanxiang_propose_skill'])
+    expect(h.skills.map(skill => skill.name)).toEqual(['dsh-logalyze'])
+    expect(h.tools.map(tool => tool.definition.name)).toEqual(['logalyze_dispatch', 'logalyze_propose_skill'])
     const [tool, propose] = h.tools
     const signal = new AbortController().signal
     const step = (depth?: number) => ({ agent: { id: 'a', session: { header: { id: 'a', ...depth === undefined ? {} : { delegationDepth: depth } } } }, signal })
@@ -114,29 +114,29 @@ describe('plugin', () => {
     expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`order-service`')
   })
 
-  it('offers the SKILL proposal tool to top-level agents once proposals are enabled and mentions it in /guanxiang', async () => {
+  it('offers the SKILL proposal tool to top-level agents once proposals are enabled and mentions it in /logalyze', async () => {
     const { dir, cleanup } = await tempDir()
     cleanups.push(cleanup)
     const origin = await createAppRepo(join(dir, 'order-service'))
     const h = await harness()
     cleanups.push(h.dispose)
     apply(h.ctx, { repos: [{ url: origin }], skillUpdates: { enabled: true } }, { overlayPath: join(dir, 'settings.json') })
-    const propose = h.tools.find(tool => tool.definition.name === 'guanxiang_propose_skill')
+    const propose = h.tools.find(tool => tool.definition.name === 'logalyze_propose_skill')
     const signal = new AbortController().signal
     const step = (depth?: number) => ({ agent: { id: 'a', session: { header: { id: 'a', ...depth === undefined ? {} : { delegationDepth: depth } } } }, signal })
     expect(await propose!.when?.(step())).toBe(true)
     expect(await propose!.when?.(step(1))).toBe(false)
     const [candidate] = await h.skills[0]!.list({})
-    expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`guanxiang_propose_skill`')
+    expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`logalyze_propose_skill`')
   })
 
-  it('refreshes repositories before rendering /guanxiang, waiting at most refreshWaitMs', async () => {
+  it('refreshes repositories before rendering /logalyze, waiting at most refreshWaitMs', async () => {
     const { dir, cleanup } = await tempDir()
     cleanups.push(cleanup)
     const origin = await createAppRepo(join(dir, 'order-service'))
-    const manifestPath = join(origin, '.dsh', 'guanxiang.yaml')
+    const manifestPath = join(origin, '.dsh', 'logalyze.yaml')
     const addHint = async (hint: string): Promise<void> => {
-      await commitFile(origin, '.dsh/guanxiang.yaml', (await readFile(manifestPath, 'utf8')).replace('logHints: [', `logHints: [${hint}, `))
+      await commitFile(origin, '.dsh/logalyze.yaml', (await readFile(manifestPath, 'utf8')).replace('logHints: [', `logHints: [${hint}, `))
     }
     const stalled = { value: false }
     const git: GitRunner = (args, options) => stalled.value && args[0] === 'fetch' ? new Promise(() => {}) : runGit(args, options)
@@ -186,10 +186,10 @@ describe('plugin', () => {
     const h = await harness()
     cleanups.push(h.dispose)
     apply(h.ctx, {}, { overlayPath })
-    const initial = await json<StateWire>(await fetch(`${h.base}/guanxiang/state`))
+    const initial = await json<StateWire>(await fetch(`${h.base}/logalyze/state`))
     expect(initial).toMatchObject({ repos: [], overridden: [] })
 
-    const saved = await fetch(`${h.base}/guanxiang/settings`, {
+    const saved = await fetch(`${h.base}/logalyze/settings`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ...initial.settings, repos: [{ url: origin }], download: { ...initial.settings.download, allowedHosts: ['OSS.example.com'] } }),
@@ -202,17 +202,17 @@ describe('plugin', () => {
     expect(await h.tools[0]!.when?.(step)).toBe(false)
     await waitFor(async () => await h.tools[0]!.when?.(step) === true)
 
-    const invalid = await fetch(`${h.base}/guanxiang/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...initial.settings, maxAppsPerRequest: 0 }) })
+    const invalid = await fetch(`${h.base}/logalyze/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...initial.settings, maxAppsPerRequest: 0 }) })
     expect(invalid.status).toBe(400)
     expect((await json<{ error: string }>(invalid)).error).toMatch(/^maxAppsPerRequest: /)
 
-    const crossSite = await fetch(`${h.base}/guanxiang/sync`, { method: 'POST', headers: { origin: 'https://evil.example' } })
+    const crossSite = await fetch(`${h.base}/logalyze/sync`, { method: 'POST', headers: { origin: 'https://evil.example' } })
     expect(crossSite.status).toBe(403)
-    const unknown = await fetch(`${h.base}/guanxiang/sync`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: '/nope' }) })
+    const unknown = await fetch(`${h.base}/logalyze/sync`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: '/nope' }) })
     expect(unknown.status).toBe(400)
-    expect((await fetch(`${h.base}/guanxiang/state`, { method: 'POST' })).status).toBe(405)
+    expect((await fetch(`${h.base}/logalyze/state`, { method: 'POST' })).status).toBe(405)
 
-    const reset = await fetch(`${h.base}/guanxiang/settings`, { method: 'DELETE' })
+    const reset = await fetch(`${h.base}/logalyze/settings`, { method: 'DELETE' })
     expect((await json<{ state: StateWire }>(reset)).state).toMatchObject({ repos: [], overridden: [] })
     expect(await h.tools[0]!.when?.(step)).toBe(false)
   })
@@ -231,21 +231,21 @@ describe('plugin', () => {
     cleanups.push(h.dispose)
     const url = `${server.base}/team/order-service.git`
     apply(h.ctx, { repos: [{ url }] }, { overlayPath: join(dir, 'settings.json') })
-    const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/guanxiang/state`))
+    const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/logalyze/state`))
     const send = (route: string, method: string, body: unknown): Promise<Response> => fetch(`${h.base}${route}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
     await waitFor(async () => (await state()).repos[0]?.phase === 'failed')
     expect((await state()).hosts).toMatchObject({ availability: 'ready', hosts: [], mirrorDir: h.repos.mirrorSettings().dir })
 
-    expect((await send('/guanxiang/hosts', 'POST', { url: server.base, alias: '本地', token: 'a\nb' })).status).toBe(400)
-    expect((await send('/guanxiang/hosts', 'POST', { url: server.base, alias: '本地', token: 'glpat-wrong' })).status).toBe(200)
-    expect((await send('/guanxiang/hosts', 'POST', { url: server.base })).status).toBe(400)
+    expect((await send('/logalyze/hosts', 'POST', { url: server.base, alias: '本地', token: 'a\nb' })).status).toBe(400)
+    expect((await send('/logalyze/hosts', 'POST', { url: server.base, alias: '本地', token: 'glpat-wrong' })).status).toBe(200)
+    expect((await send('/logalyze/hosts', 'POST', { url: server.base })).status).toBe(400)
     await waitFor(async () => { const repo = (await state()).repos[0]; return repo?.phase === 'failed' && repo.syncedAt !== undefined })
     const added = await state()
     expect(added.hosts.hosts).toMatchObject([{ kind: 'gitlab', url: server.base, alias: '本地', origin: 'added', token: { configured: true, source: 'file', writable: true } }])
     expect(JSON.stringify(added)).not.toContain('glpat-wrong')
 
-    const saved = await send('/guanxiang/host-token', 'PUT', { url: server.base, value: ` ${token} ` })
+    const saved = await send('/logalyze/host-token', 'PUT', { url: server.base, value: ` ${token} ` })
     const savedText = await saved.text()
     expect(saved.status).toBe(200)
     expect(savedText).not.toContain(token)
@@ -256,12 +256,12 @@ describe('plugin', () => {
     expect(JSON.stringify(ready)).not.toContain(token)
     expect(await readFile(join(ready.repos[0]!.dir!, '.git', 'config'), 'utf8')).not.toContain(token)
 
-    expect((await send('/guanxiang/host-token', 'DELETE', { url: server.base })).status).toBe(200)
+    expect((await send('/logalyze/host-token', 'DELETE', { url: server.base })).status).toBe(200)
     expect((await state()).hosts.hosts[0]?.token.configured).toBe(false)
-    expect((await send('/guanxiang/hosts', 'DELETE', { url: server.base })).status).toBe(200)
+    expect((await send('/logalyze/hosts', 'DELETE', { url: server.base })).status).toBe(200)
     expect((await state()).hosts.hosts).toEqual([])
     expect(Object.keys(credentials.values)).toEqual([])
-    expect((await send('/guanxiang/token', 'PUT', { tokenEnv: 'GITLAB_TOKEN', value: 'x' })).status).toBe(400)
+    expect((await send('/logalyze/token', 'PUT', { tokenEnv: 'GITLAB_TOKEN', value: 'x' })).status).toBe(400)
   })
 
   it('reports a missing dsh-repo instead of pulling', async () => {
@@ -270,12 +270,12 @@ describe('plugin', () => {
     const h = await harness({ dshRepos: undefined })
     cleanups.push(h.dispose)
     apply(h.ctx, { repos: [{ url: 'https://gitlab.invalid/team/app.git' }] }, { overlayPath: join(dir, 'settings.json') })
-    const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/guanxiang/state`))
+    const state = async (): Promise<StateWire> => await json<StateWire>(await fetch(`${h.base}/logalyze/state`))
     await waitFor(async () => (await state()).repos[0]?.phase === 'failed')
     const current = await state()
     expect(current.hosts).toEqual({ availability: 'missing', hosts: [] })
     expect(current.repos[0]?.error).toContain('请安装 dsh-repo')
-    const post = await fetch(`${h.base}/guanxiang/hosts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: 'https://gitlab.invalid' }) })
+    const post = await fetch(`${h.base}/logalyze/hosts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: 'https://gitlab.invalid' }) })
     expect(post.status).toBe(400)
   })
 
@@ -286,7 +286,7 @@ describe('plugin', () => {
     cleanups.push(h.dispose)
     apply(h.ctx, {}, { overlayPath: join(dir, 'settings.json') })
     h.rejection.value = 401
-    const response = await fetch(`${h.base}/guanxiang/state`)
+    const response = await fetch(`${h.base}/logalyze/state`)
     expect(response.status).toBe(401)
   })
 
@@ -299,7 +299,7 @@ describe('plugin', () => {
     cleanups.push(h.dispose)
     apply(h.ctx, {}, { overlayPath })
     await waitFor(() => false, 50).catch(() => undefined)
-    const state = await json<StateWire>(await fetch(`${h.base}/guanxiang/state`))
+    const state = await json<StateWire>(await fetch(`${h.base}/logalyze/state`))
     expect(state.overlayError).toContain('内容不合法')
     expect(state.settings.maxAppsPerRequest).toBe(4)
   })

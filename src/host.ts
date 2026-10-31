@@ -6,7 +6,7 @@
  * `packages/subagent/subagent`、`packages/session/working-directory`、
  * `packages/credentials/credentials`、`packages/interaction/user-approval`）。
  *
- * @module dsh-guanxiang/host
+ * @module dsh-logalyze/host
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'

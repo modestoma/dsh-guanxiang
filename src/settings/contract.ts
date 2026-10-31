@@ -2,21 +2,21 @@
  * 设置面板与 Host 路由共用的路由常量和 JSON 结构。浏览器端 bundle 也会
  * 编译本文件，因此这里只放类型和常量，不 import 任何 Node 模块。
  *
- * @module dsh-guanxiang/settings/contract
+ * @module dsh-logalyze/settings/contract
  */
 
 /** GET：面板所需的全部状态（生效设置、默认值、仓库与应用）。 */
-export const STATE_ROUTE = '/guanxiang/state'
+export const STATE_ROUTE = '/logalyze/state'
 /** PUT：保存可编辑设置；DELETE：清除面板覆盖、恢复 cordis.yml 默认值。 */
-export const SETTINGS_ROUTE = '/guanxiang/settings'
+export const SETTINGS_ROUTE = '/logalyze/settings'
 /** POST：立即重新拉取全部仓库，或 body `{ url }` 指定的一个仓库。 */
-export const SYNC_ROUTE = '/guanxiang/sync'
+export const SYNC_ROUTE = '/logalyze/sync'
 /** PUT：body `{ tokenEnv, value }` 把分析接口令牌存入 DSH 凭据库；DELETE：body `{ tokenEnv }` 删除已存的值。只接受分析接口令牌的名称。 */
-export const TOKEN_ROUTE = '/guanxiang/token'
+export const TOKEN_ROUTE = '/logalyze/token'
 /** POST：body {@link HostAddRequest} 经 dsh-repo 添加主机；DELETE：body `{ url }` 删除面板添加的主机。 */
-export const HOSTS_ROUTE = '/guanxiang/hosts'
+export const HOSTS_ROUTE = '/logalyze/hosts'
 /** PUT：body `{ url, value }` 经 dsh-repo 保存主机令牌；DELETE：body `{ url }` 清除已存的令牌。 */
-export const HOST_TOKEN_ROUTE = '/guanxiang/host-token'
+export const HOST_TOKEN_ROUTE = '/logalyze/host-token'
 
 /**
  * POST：日志平台分析接口（Bearer 令牌鉴权，不走 DSH 登录）。它在 DSH 的
@@ -61,7 +61,7 @@ export interface DownloadSettings {
 
 /** Application SKILL improvement proposals that children may write and the top-level agent may submit as merge requests. */
 export interface SkillUpdateSettings {
-  /** Whether children are told how to propose SKILL changes and top-level agents are offered `guanxiang_propose_skill`. */
+  /** Whether children are told how to propose SKILL changes and top-level agents are offered `logalyze_propose_skill`. */
   enabled: boolean
   /** Most files one proposal may add or change. */
   maxFiles: number
@@ -79,7 +79,7 @@ export interface AnalyzeSettings {
 export interface EditableSettings {
   /** Application repositories to mirror and keep updated. */
   repos: RepoSpec[]
-  /** Minimum age of a repository's last sync before loading `/guanxiang` syncs it again, in milliseconds; 0 syncs on every load. */
+  /** Minimum age of a repository's last sync before loading `/logalyze` syncs it again, in milliseconds; 0 syncs on every load. */
   fetchIntervalMs: number
   /** Maximum number of child analyses one dispatch may start. */
   maxAppsPerRequest: number
@@ -99,7 +99,7 @@ export const EDITABLE_KEYS = ['repos', 'fetchIntervalMs', 'maxAppsPerRequest', '
 /** One editable key. */
 export type EditableKey = (typeof EDITABLE_KEYS)[number]
 
-/** Application description read from `<repo>/.dsh/guanxiang.yaml`. */
+/** Application description read from `<repo>/.dsh/logalyze.yaml`. */
 export interface AppManifest {
   /** Registry id the dispatch tool and analysis requests address. */
   id: string
@@ -202,7 +202,7 @@ export interface AnalyzeWire {
   topics: TopicsAvailability
 }
 
-/** `GET /guanxiang/state` response. */
+/** `GET /logalyze/state` response. */
 export interface StateWire {
   /** Effective settings: cordis.yml values with panel overrides applied. */
   settings: EditableSettings

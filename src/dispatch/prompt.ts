@@ -2,7 +2,7 @@
  * 子 Agent 首条消息。首行的 `/<skill>` 由 DSH 的 skill 手势确定性注入应用的
  * 日志分析 SKILL（子 Agent 首条消息的来源是 user）。
  *
- * @module dsh-guanxiang/dispatch/prompt
+ * @module dsh-logalyze/dispatch/prompt
  */
 
 import type { AppManifest } from '../settings/contract.ts'

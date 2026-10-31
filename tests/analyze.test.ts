@@ -20,7 +20,7 @@ const REQUEST: AnalyzeRequest = {
   errorCode: 'E1001',
   logDetails: [{ name: '日志 1', url: 'https://logs.example.com/d/1' }],
   chatId: 'oc_group1',
-  prompt: '/guanxiang 分析这些日志',
+  prompt: '/logalyze 分析这些日志',
 }
 
 const cleanups: (() => Promise<void>)[] = []
@@ -108,7 +108,7 @@ async function errorOf(response: Response): Promise<string> {
 
 describe('analyze contract', () => {
   it('keeps a stable request fingerprint', () => {
-    expect(analyzeRequestHash(REQUEST)).toBe('e12f80cd7ac63b7b3a50a509514173aaafd7c53398faceb915b893f18132c2bb')
+    expect(analyzeRequestHash(REQUEST)).toBe('8f934b9451fb62025000db4c0e24800a8d6f6e88330b3350d0fc3c8c32fdf454')
   })
 
   it('lists every invalid field', () => {
@@ -161,15 +161,15 @@ describe('analyze route', () => {
     const credentials = fakeCredentials()
     const h = await harness({ credentials }, { analyze: { enabled: true } })
     expect(h.routes.has('/open-api/logalyze')).toBe(false)
-    const state = await (await fetch(`${h.base}/guanxiang/state`)).json() as StateWire
-    expect(state.analyze).toEqual({ route: '/open-api/logalyze', tokenEnv: 'GUANXIANG_ANALYZE_TOKEN', token: { tokenEnv: 'GUANXIANG_ANALYZE_TOKEN', configured: false, writable: true }, topics: 'missing' })
+    const state = await (await fetch(`${h.base}/logalyze/state`)).json() as StateWire
+    expect(state.analyze).toEqual({ route: '/open-api/logalyze', tokenEnv: 'LOGALYZE_ANALYZE_TOKEN', token: { tokenEnv: 'LOGALYZE_ANALYZE_TOKEN', configured: false, writable: true }, topics: 'missing' })
   })
 
   it('is not registered for an incompatible provider', async () => {
     const h = await harness({ feishuTopics: { version: 2, launch: () => undefined } })
     expect(h.routes.has('/open-api/logalyze')).toBe(false)
     expect(h.warn).toHaveBeenCalledWith(expect.stringContaining('版本与观象不兼容'))
-    const state = await (await fetch(`${h.base}/guanxiang/state`)).json() as StateWire
+    const state = await (await fetch(`${h.base}/logalyze/state`)).json() as StateWire
     expect(state.analyze.topics).toBe('incompatible')
   })
 
@@ -181,8 +181,8 @@ describe('analyze route', () => {
     expect(off.status).toBe(404)
     expect(await errorOf(off)).toContain('「分析接口」')
 
-    const state = await (await fetch(`${h.base}/guanxiang/state`)).json() as StateWire
-    const saved = await fetch(`${h.base}/guanxiang/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...state.settings, analyze: { enabled: true } }) })
+    const state = await (await fetch(`${h.base}/logalyze/state`)).json() as StateWire
+    const saved = await fetch(`${h.base}/logalyze/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...state.settings, analyze: { enabled: true } }) })
     expect(((await saved.json()) as { state: StateWire }).state.overridden).toEqual(['analyze'])
     expect((await post(h.base, REQUEST)).status).toBe(503)
   })
@@ -194,15 +194,15 @@ describe('analyze route', () => {
 
     const unset = await post(h.base, REQUEST)
     expect(unset.status).toBe(503)
-    expect(await errorOf(unset)).toContain('GUANXIANG_ANALYZE_TOKEN')
+    expect(await errorOf(unset)).toContain('LOGALYZE_ANALYZE_TOKEN')
 
-    const putToken = (tokenEnv: string, value: string): Promise<Response> => fetch(`${h.base}/guanxiang/token`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenEnv, value }) })
+    const putToken = (tokenEnv: string, value: string): Promise<Response> => fetch(`${h.base}/logalyze/token`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenEnv, value }) })
     expect((await putToken('DEEPSEEK_API_KEY', 'x')).status).toBe(400)
-    const saved = await putToken('GUANXIANG_ANALYZE_TOKEN', 'secret-token')
+    const saved = await putToken('LOGALYZE_ANALYZE_TOKEN', 'secret-token')
     expect(saved.status).toBe(200)
     const savedText = await saved.text()
     expect(savedText).not.toContain('secret-token')
-    expect((JSON.parse(savedText) as { state: StateWire }).state.analyze.token).toEqual({ tokenEnv: 'GUANXIANG_ANALYZE_TOKEN', configured: true, source: 'file', writable: true })
+    expect((JSON.parse(savedText) as { state: StateWire }).state.analyze.token).toEqual({ tokenEnv: 'LOGALYZE_ANALYZE_TOKEN', configured: true, source: 'file', writable: true })
 
     expect((await fetch(`${h.base}/open-api/logalyze`)).status).toBe(405)
     const wrong = await post(h.base, REQUEST, { authorization: 'Bearer nope' })
@@ -225,7 +225,7 @@ describe('analyze route', () => {
     expect(forbidden.status).toBe(403)
     expect(await errorOf(forbidden)).toBe('目标群未授权')
 
-    const cleared = await fetch(`${h.base}/guanxiang/token`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenEnv: 'GUANXIANG_ANALYZE_TOKEN' }) })
+    const cleared = await fetch(`${h.base}/logalyze/token`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tokenEnv: 'LOGALYZE_ANALYZE_TOKEN' }) })
     expect(cleared.status).toBe(200)
     expect(credentials.stored.size).toBe(0)
     expect((await post(h.base, REQUEST)).status).toBe(503)

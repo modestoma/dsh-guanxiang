@@ -85,7 +85,7 @@ async function waitForStarts(started: Started[], count: number): Promise<void> {
   expect(started).toHaveLength(count)
 }
 
-describe('guanxiang_dispatch', () => {
+describe('logalyze_dispatch', () => {
   it('starts one child per task in the app repository and returns every result', async () => {
     const { dir, project, dispatcher, started, parent, registry } = await setup()
     const log = join(project, 'sample-logs', 'order-service.log')
@@ -103,7 +103,7 @@ describe('guanxiang_dispatch', () => {
     expect(child?.spec.request.cwd).toMatch(new RegExp(`^${join(dir, 'dsh-repo', 'mirrors', '.snapshots', 'local')}/order-service-[0-9a-f]{8}/[0-9a-f]{12}-[0-9a-f]{6}$`))
     const prompt = child?.spec.request.prompt[0]?.text as string
     expect(prompt.split('\n')[0]).toBe('/log-analysis')
-    const workDir = join(project, 'sample-logs', '.guanxiang', 'runs')
+    const workDir = join(project, 'sample-logs', '.logalyze', 'runs')
     expect(prompt).toContain(`- \`${log}\``)
     expect(prompt).toContain(`（下载自 http://127.0.0.1:${port}/bucket/app.tar.gz?sig=x）；只看本应用相关部分：tag=order`)
     expect(prompt).toContain(workDir)
@@ -146,7 +146,7 @@ describe('guanxiang_dispatch', () => {
     expect(value.results[1]?.skillProposal).toBeUndefined()
     const text = renderDispatchValue(value)[0]?.text
     expect(text).toContain('SKILL 修改提议：.dsh/skills/log-analysis/SKILL.md（+1 −')
-    expect(text).toContain(`提交时调用 guanxiang_propose_skill，workDir 为 ${workDir}。`)
+    expect(text).toContain(`提交时调用 logalyze_propose_skill，workDir 为 ${workDir}。`)
   })
 
   it('rejects unknown apps, unreadable paths, disallowed URLs, and too many tasks before starting anything', async () => {

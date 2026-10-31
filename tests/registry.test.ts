@@ -74,7 +74,7 @@ describe('repository registry', () => {
     git(origin, '-c', 'user.name=t', '-c', 'user.email=t@e', 'commit', '-qm', 'init')
     registry.configure([{ url: origin }])
     await registry.syncAll()
-    expect(registry.status()[0]).toMatchObject({ phase: 'failed', available: false, error: '仓库缺少应用描述 .dsh/guanxiang.yaml' })
+    expect(registry.status()[0]).toMatchObject({ phase: 'failed', available: false, error: '仓库缺少应用描述 .dsh/logalyze.yaml' })
     expect(registry.readyApps()).toEqual([])
   })
 

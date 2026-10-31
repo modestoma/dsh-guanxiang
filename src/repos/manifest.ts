@@ -1,8 +1,8 @@
 /**
- * 应用仓库内 `.dsh/guanxiang.yaml` 应用描述的解析与校验，以及对应日志分析
+ * 应用仓库内 `.dsh/logalyze.yaml` 应用描述的解析与校验，以及对应日志分析
  * SKILL 的存在性检查。
  *
- * @module dsh-guanxiang/repos/manifest
+ * @module dsh-logalyze/repos/manifest
  */
 
 import { readFile } from 'node:fs/promises'
@@ -13,7 +13,7 @@ import { describeIssue } from '../config.ts'
 import type { AppManifest } from '../settings/contract.ts'
 
 /** Manifest path relative to the repository root. */
-export const MANIFEST_PATH = '.dsh/guanxiang.yaml'
+export const MANIFEST_PATH = '.dsh/logalyze.yaml'
 
 /** Kebab-case identifier, the same rule DSH applies to skill names. */
 export const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

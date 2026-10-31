@@ -1,17 +1,17 @@
 /**
- * `guanxiang_dispatch` 派发工具：校验应用与日志，下载 URL 日志，按应用并行
+ * `logalyze_dispatch` 派发工具：校验应用与日志，下载 URL 日志，按应用并行
  * 启动子 Agent（工作目录为应用仓库），等待全部结束后一次返回各应用结论。
  *
  * - 应用 id 必须与注册表一一对应且仓库可用，否则整次调用被拒绝、不启动任何子 Agent。
  * - 日志一律以绝对路径交给子 Agent；URL 先下载到本次运行目录
- *   `<父会话目录>/.guanxiang/runs/<runId>/<序号>-<应用 id>/`，该目录也是子 Agent
+ *   `<父会话目录>/.logalyze/runs/<runId>/<序号>-<应用 id>/`，该目录也是子 Agent
  *   解压日志的可写目录。
  * - 超时（`dispatchTimeoutMs`）或调用被取消时停止全部仍在运行的子 Agent。
  * - 开启 SKILL 改进时，子 Agent 可以在运行目录写 SKILL 修改提议；派发结束后
  *   检查已完成任务的提议，并在结果中给出改动统计或提议不可用的原因。
  * - 子会话（委派深度大于 0）中不提供本工具。
  *
- * @module dsh-guanxiang/dispatch/tool
+ * @module dsh-logalyze/dispatch/tool
  */
 
 import { randomBytes } from 'node:crypto'
@@ -29,7 +29,7 @@ import { renderChildPrompt } from './prompt.ts'
 import type { ChildLog } from './prompt.ts'
 
 /** Model-facing tool name. */
-export const DISPATCH_TOOL_NAME = 'guanxiang_dispatch'
+export const DISPATCH_TOOL_NAME = 'logalyze_dispatch'
 
 const logSchema = z.union([
   z.object({ path: z.string().trim().min(1), filter: z.string().trim().min(1).optional() }).strict(),
@@ -269,7 +269,7 @@ export class Dispatcher {
     return {
       name: DISPATCH_TOOL_NAME,
       description: '观象：把日志分析任务派发给在对应应用代码仓库中工作的子 Agent，并等待全部完成后返回各应用的结论。'
-        + '仅在 /guanxiang 入口 SKILL 的流程中使用；一次调用包含所有任务。',
+        + '仅在 /logalyze 入口 SKILL 的流程中使用；一次调用包含所有任务。',
       parameters: DISPATCH_PARAMETERS,
       output: {
         schema: OUTPUT_SCHEMA,
@@ -318,7 +318,7 @@ export class Dispatcher {
     try {
       exec.signal.throwIfAborted()
       const runId = newRunId(this.deps.now?.() ?? new Date())
-      const runDir = join(baseDir, '.guanxiang', 'runs', runId)
+      const runDir = join(baseDir, '.logalyze', 'runs', runId)
       const prepared = await Promise.all(tasks.map(async (task, index) => {
         const ready = lease.apps.get(task.app)
         if (ready === undefined) throw new Error(`应用「${task.app}」不可用`)

@@ -1,4 +1,4 @@
-# 观象应用描述：观象拉取本仓库后读取此文件，把应用加入 /guanxiang 的应用目录。
+# 观象应用描述：观象拉取本仓库后读取此文件，把应用加入 /logalyze 的应用目录。
 id: order-service
 name: 订单服务
 description: 下单、库存扣减与支付回调

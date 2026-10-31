@@ -10,10 +10,10 @@ describe('entry skill', () => {
     expect(renderCatalog([order])).toContain('| `order-service` | 订单服务 | 下单 \\| 支付 | 订单 | `OrderController` |')
     expect(renderCatalog([])).toContain('当前没有可用的应用')
     const body = renderEntrySkill([order], 3, false)
-    expect(body).toContain('`guanxiang_dispatch`')
+    expect(body).toContain('`logalyze_dispatch`')
     expect(body).toContain('最多 3 个')
-    expect(body).not.toContain('guanxiang_propose_skill')
-    expect(renderEntrySkill([order], 3, true)).toContain('然后调用 `guanxiang_propose_skill`')
+    expect(body).not.toContain('logalyze_propose_skill')
+    expect(renderEntrySkill([order], 3, true)).toContain('然后调用 `logalyze_propose_skill`')
   })
 
   it('is user-invocable only and renders the live catalog on each load', async () => {
@@ -23,7 +23,7 @@ describe('entry skill', () => {
     const control = { signal: new AbortController().signal, invalidate: vi.fn() }
     const provider = factory(control)
     const [candidate] = await provider.list({})
-    expect(candidate).toMatchObject({ name: 'guanxiang', invocation: { modelInvocable: false, userInvocable: true }, rank: 600 })
+    expect(candidate).toMatchObject({ name: 'logalyze', invocation: { modelInvocable: false, userInvocable: true }, rank: 600 })
     let loaded = false
     const loading = provider.get(candidate!, {}).then((skill) => { loaded = true; return skill })
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -52,13 +52,13 @@ describe('entry skill', () => {
     const control = { signal: new AbortController().signal, invalidate: vi.fn() }
     const provider = factory(control)
     const [empty] = await provider.list({ cwd: '/project' })
-    expect(empty).toMatchObject({ invocation: { modelInvocable: false, userInvocable: true }, whenToUse: '仅在用户输入 /guanxiang 时使用。' })
+    expect(empty).toMatchObject({ invocation: { modelInvocable: false, userInvocable: true }, whenToUse: '仅在用户输入 /logalyze 时使用。' })
 
     apps = [order]
     invalidate()
     expect(control.invalidate).toHaveBeenCalledTimes(1)
     const [listed] = await provider.list({ cwd: '/project' })
-    expect(listed).toMatchObject({ name: 'guanxiang', invocation: { modelInvocable: true, userInvocable: true } })
+    expect(listed).toMatchObject({ name: 'logalyze', invocation: { modelInvocable: true, userInvocable: true } })
     expect(listed?.description).toContain('订单服务（order-service、订单、OrderController）')
     expect(await provider.list({ cwd: '/repos/.snapshots/order-service/abc' })).toEqual([])
     invalidate()
