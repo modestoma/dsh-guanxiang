@@ -3,8 +3,7 @@
  * 管理主机与令牌，并把 SKILL 修改提议提交为合并请求（GitLab MR 或 GitHub PR）。
  *
  * 只从 `dsh-repo/contract` 引入类型；服务在运行时经 `ctx.get('dshRepos')`
- * 取得，版本不符或缺少本插件用到的方法（早于 0.1.0-beta.3 的 dsh-repo）时
- * 不调用。
+ * 取得，服务版本不符时不调用。
  *
  * @module dsh-guanxiang/repos/lookup
  */
@@ -17,16 +16,6 @@ export const DSH_REPOS_SERVICE = 'dshRepos'
 /** The `dshRepos` contract version this plugin speaks. */
 export const DSH_REPOS_VERSION: DshReposVersion = 1
 
-/** Oldest dsh-repo release providing every method {@link REQUIRED_METHODS} lists. */
-export const DSH_REPO_MIN_RELEASE = '0.1.0-beta.3'
-
-/** Methods this plugin calls; `getBranch` also marks a provider that honors `baseSha` and `newBranch` on commits. */
-const REQUIRED_METHODS = [
-  'getBranch', 'commitFiles', 'createChange',
-  'listHosts', 'addHost', 'removeHost', 'setHostToken',
-  'mirrorSettings', 'syncMirror', 'readMirrorFile', 'listMirrorTree', 'acquireSnapshot',
-] as const satisfies readonly (keyof DshRepoService)[]
-
 /** Result of looking the service up. */
 export type ReposLookup =
   | { readonly availability: 'ready'; readonly service: DshRepoService }
@@ -34,17 +23,13 @@ export type ReposLookup =
 
 /**
  * Classify the value `ctx.get('dshRepos')` returned. The provider is another
- * package that may be older or newer than this one, so its version and
- * methods are checked at run time.
+ * package, so its contract version is checked at run time.
  * @param value - the looked-up service, or undefined.
  * @returns the usable service, or why there is none.
  */
 export function lookupRepos(value: unknown): ReposLookup {
   if (value === undefined || value === null) return { availability: 'missing' }
-  const service = value as Partial<Record<keyof DshRepoService, unknown>>
-  if (service.version !== DSH_REPOS_VERSION || REQUIRED_METHODS.some(method => typeof service[method] !== 'function')) {
-    return { availability: 'incompatible' }
-  }
+  if ((value as { version?: unknown }).version !== DSH_REPOS_VERSION) return { availability: 'incompatible' }
   return { availability: 'ready', service: value as DshRepoService }
 }
 
@@ -67,7 +52,7 @@ export function repoErrorCode(error: unknown): RepoErrorCode | undefined {
 export function unavailableMessage(availability: 'missing' | 'incompatible'): string {
   return availability === 'missing'
     ? `观象需要 dsh-repo 插件提供的 ${DSH_REPOS_SERVICE} 服务来拉取仓库和提交 SKILL 修改；请安装 dsh-repo`
-    : `dsh-repo 的 ${DSH_REPOS_SERVICE} 服务与观象不兼容（需要服务版本 ${DSH_REPOS_VERSION}，即 dsh-repo ${DSH_REPO_MIN_RELEASE} 及以上）；请升级 dsh-repo`
+    : `dsh-repo 的 ${DSH_REPOS_SERVICE} 服务与观象不兼容（需要服务版本 ${DSH_REPOS_VERSION}）；请换用兼容的 dsh-repo`
 }
 
 /**

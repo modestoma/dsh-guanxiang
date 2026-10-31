@@ -8,7 +8,7 @@
 import type { DshRepoService } from 'dsh-repo/contract'
 import { z } from 'zod'
 import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema } from './config.ts'
-import type { GuanxiangConfig, LegacyCredential, SettingsOverlay } from './config.ts'
+import type { GuanxiangConfig, SettingsOverlay } from './config.ts'
 import { abortable } from './abort.ts'
 import type { AnalyzeGate } from './analyze/server.ts'
 import { FEISHU_TOPICS_SERVICE, lookupTopics } from './analyze/topics.ts'
@@ -60,7 +60,6 @@ export class GuanxiangService {
   private active = true
   private readonly refreshWaitMs: number
   private readonly analyzeTokenRef: string
-  private readonly legacyCredentials: readonly LegacyCredential[]
   private readonly booted = Promise.withResolvers<void>()
 
   /**
@@ -78,7 +77,6 @@ export class GuanxiangService {
     this.defaults = defaultsOf(config)
     this.refreshWaitMs = config.refreshWaitMs
     this.analyzeTokenRef = config.analyzeTokenRef
-    this.legacyCredentials = config.gitCredentials
     this.current = this.defaults
     this.registry = new RepoRegistry({
       repos: () => ctx.get?.(DSH_REPOS_SERVICE),
@@ -166,8 +164,7 @@ export class GuanxiangService {
   }
 
   /**
-   * Load the panel overlay, configure the registry, move legacy access tokens
-   * to dsh-repo hosts, and sync every repository.
+   * Load the panel overlay, configure the registry, and sync every repository.
    * @returns when the first sync round settled.
    */
   async boot(): Promise<void> {
@@ -188,51 +185,18 @@ export class GuanxiangService {
     }
     this.current = applyOverlay(this.defaults, this.overlay)
     this.registry.configure(this.current.repos)
-    await this.migrateCredentials()
     await this.registry.syncAll()
   }
 
   /**
-   * React to dsh-repo becoming available (or reloading): move legacy tokens
-   * and sync every repository again.
+   * React to dsh-repo becoming available (or reloading): sync every
+   * repository again.
    * @returns when the syncs settled.
    */
   async reposAvailable(): Promise<void> {
     await this.booted.promise
     if (!this.active) return
-    await this.migrateCredentials()
     await this.registry.resyncAll()
-  }
-
-  /**
-   * Add each access token of earlier versions whose address dsh-repo does not
-   * know yet as a dsh-repo host, carrying the stored token value. The panel's
-   * list replaces the cordis.yml list, as it did before. An entry whose token
-   * cannot be resolved yet is left for a later start instead of creating a
-   * host without a token. Failures are logged; the legacy entry stays and the
-   * next start tries again.
-   */
-  private async migrateCredentials(): Promise<void> {
-    const legacy = this.overlay.gitCredentials ?? this.legacyCredentials
-    if (legacy.length === 0) return
-    const lookup = lookupRepos(this.ctx.get?.(DSH_REPOS_SERVICE))
-    if (lookup.availability !== 'ready') return
-    const store = this.credentialStore()
-    if (store === undefined) return
-    for (const credential of legacy) {
-      try {
-        const token = (await store.resolve(credential.tokenEnv))?.value
-        if (token === undefined || token === '') {
-          this.ctx.logger?.warn?.('guanxiang: 访问令牌 %s 尚未设置，暂不迁移到 dsh-repo', credential.url)
-          continue
-        }
-        await lookup.service.addHost({ url: credential.url, ...credential.alias === undefined || credential.alias === '' ? {} : { alias: credential.alias }, token })
-        this.ctx.logger?.info?.('guanxiang: 已把访问令牌 %s 迁移为 dsh-repo 主机', credential.url)
-      } catch (error) {
-        if (repoErrorCode(error) === 'conflict') continue
-        this.ctx.logger?.warn?.('guanxiang: 迁移访问令牌 %s 到 dsh-repo 失败：%s', credential.url, messageOf(error))
-      }
-    }
   }
 
   /** Stop registering tools; in-flight syncs finish without side effects on the host. */

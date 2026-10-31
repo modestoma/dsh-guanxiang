@@ -319,7 +319,7 @@ function ReposTab({ draft, setDraft, state, busy, onSync }: TabProps & { state: 
           <button type="button" className="gx__btn" disabled={url.trim() === ''} onClick={add}>添加</button>
         </div>
       </div>
-      {state.hosts.availability === 'ready' ? null : <div className="gx__notice gx__notice--error">{state.hosts.availability === 'missing' ? '没有加载 dsh-repo 插件，仓库无法拉取。请安装 dsh-repo。' : 'dsh-repo 版本过旧，仓库无法拉取。请升级 dsh-repo。'}</div>}
+      {state.hosts.availability === 'ready' ? null : <div className="gx__notice gx__notice--error">{state.hosts.availability === 'missing' ? '没有加载 dsh-repo 插件，仓库无法拉取。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，仓库无法拉取。'}</div>}
       <p className="gx__secFoot">由 dsh-repo 拉取到它的镜像目录{state.hosts.mirrorDir === undefined ? '' : `（${state.hosts.mirrorDir}）`}。https 地址使用「访问令牌」中对应主机的令牌，ssh 地址和其他主机使用本机已有的 git 凭据（SSH key 或 credential helper）。不留分支时跟随远端默认分支。每个仓库需包含 <span className="gx__mono">.dsh/guanxiang.yaml</span> 与其中声明的日志分析 SKILL。删除地址不会删除本地镜像。</p>
       {state.repos.length > 0 ? <div><button type="button" className="gx__btn" disabled={busy} onClick={() => { onSync() }}>重新拉取全部</button></div> : null}
     </section>
@@ -377,7 +377,7 @@ function TokensTab({ state, busy, onAdd, onSave, onClear, onRemove }: {
     return (
       <section className="gx__sec">
         <h2 className="gx__secTitle">访问令牌</h2>
-        <div className="gx__notice gx__notice--error">{availability === 'missing' ? '访问令牌由 dsh-repo 插件管理，当前没有加载 dsh-repo。请安装 dsh-repo。' : 'dsh-repo 版本过旧，不能在这里管理访问令牌。请升级 dsh-repo。'}</div>
+        <div className="gx__notice gx__notice--error">{availability === 'missing' ? '访问令牌由 dsh-repo 插件管理，当前没有加载 dsh-repo。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，不能在这里管理访问令牌。'}</div>
       </section>
     )
   }
@@ -501,8 +501,8 @@ function AnalyzeTab({ draft, setDraft, analyze, credentialsAvailable, overridden
           <div className="gx__row">
             <div className="gx__rowText">
               <div className="gx__rowLabel">开启接口 <Overridden keys={overridden} name="analyze" /><span className={`gx__pill ${topics.pill}`}><span className="gx__dot" />{topics.text}</span></div>
-              <div className="gx__rowSummary">日志平台调用接口后，观象经飞书渠道（dsh-channels 0.8 及以上）在目标群发出分析卡片，并在卡片下的话题里开始分析；群内成员都可以在话题里继续追问。关闭时接口回复 404。</div>
-              {analyze.topics === 'ready' ? null : <div className="gx__rowError">{analyze.topics === 'missing' ? '接口需要 dsh-channels 0.8 及以上版本并已加载；dsh-channels 0.7 自带同名接口，升级前由它提供。' : '请把观象与 dsh-channels 升级到相互兼容的版本。'}</div>}
+              <div className="gx__rowSummary">日志平台调用接口后，观象经飞书渠道（dsh-channels）在目标群发出分析卡片，并在卡片下的话题里开始分析；群内成员都可以在话题里继续追问。关闭时接口回复 404。</div>
+              {analyze.topics === 'ready' ? null : <div className="gx__rowError">{analyze.topics === 'missing' ? '接口需要加载 dsh-channels。' : '请把观象与 dsh-channels 升级到相互兼容的版本。'}</div>}
             </div>
             <div className="gx__rowCtl"><input type="checkbox" className="gx__check" aria-label="开启分析接口" checked={draft.analyzeEnabled} onChange={(event) => { setDraft({ ...draft, analyzeEnabled: event.target.checked }) }} /></div>
           </div>

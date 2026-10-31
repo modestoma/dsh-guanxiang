@@ -57,20 +57,6 @@ const repoSchema = z.object({
     .refine(value => value === undefined || isAcceptedBranch(value), '分支名不合法'),
 }).strict()
 
-/**
- * An access token of earlier versions, which kept HTTPS tokens by address
- * prefix. Read only to move each one to a dsh-repo host once; never written.
- */
-const legacyCredentialSchema = z.object({
-  url: z.string().trim().min(1),
-  alias: z.string().trim().optional(),
-  username: z.string().optional(),
-  tokenEnv: z.string().trim().regex(TOKEN_ENV_PATTERN),
-}).strip()
-
-/** A legacy access token; see {@link legacyCredentialSchema}. */
-export type LegacyCredential = z.output<typeof legacyCredentialSchema>
-
 const hostSchema = z.string().trim().toLowerCase()
   .transform(value => value.replace(/^\*\./, ''))
   .refine(value => HOST_NAME.test(value), '域名不合法：只填主机名，例如 oss.example.com')
@@ -116,11 +102,7 @@ export const editableFields = {
 }
 
 const configSchema = z.object({
-  /** Ignored: dsh-repo's `mirror.dir` decides where repositories are mirrored. Accepted so older compositions still load. */
-  reposDir: z.string().optional(),
   repos: editableFields.repos.default([]),
-  /** Moved once to dsh-repo hosts at start; see {@link legacyCredentialSchema}. */
-  gitCredentials: z.array(legacyCredentialSchema).default([]),
   fetchIntervalMs: editableFields.fetchIntervalMs.default(0),
   maxAppsPerRequest: editableFields.maxAppsPerRequest.default(4),
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.default(30 * 60 * 1000),
@@ -139,8 +121,6 @@ const configSchema = z.object({
   skillUpdateAuthor: authorSchema.optional(),
   /** Registered `ctx.subagents` provider the children start on. */
   subagentProvider: z.string().trim().min(1).default('spawn'),
-  /** Ignored: dsh-repo's `mirror.gitTimeoutMs` bounds git commands. Accepted so older compositions still load. */
-  gitTimeoutMs: z.number().optional(),
   /**
    * How long loading `/guanxiang` waits for the repository refresh before it
    * renders the catalog it already has, in milliseconds; the refresh keeps
@@ -162,11 +142,7 @@ export const pluginConfigSchema = configSchema.prefault({})
 
 /** Panel overlay: any subset of the editable settings. */
 export const overlaySchema = z.object({
-  /** Ignored legacy key; the next panel save drops it. */
-  reposDir: z.string().optional(),
   repos: editableFields.repos.optional(),
-  /** Legacy access tokens, moved once to dsh-repo hosts; the next panel save drops them. */
-  gitCredentials: z.array(legacyCredentialSchema).optional(),
   fetchIntervalMs: editableFields.fetchIntervalMs.optional(),
   maxAppsPerRequest: editableFields.maxAppsPerRequest.optional(),
   dispatchTimeoutMs: editableFields.dispatchTimeoutMs.optional(),

@@ -1,8 +1,6 @@
 /**
  * 分析请求到 dsh-channels `feishuTopics` 服务的转换：根卡片内容、工作区
  * `analyze/<app>/<errorCode>`、幂等键与指纹，以及服务结果到 HTTP 响应的映射。
- * 卡片、工作区和指纹与 dsh-channels 0.7 自带的分析接口一致，升级前接受的
- * `Idempotency-Key` 升级后仍按原结果重放。
  *
  * 只从 `@modesto_ma/dsh-channels/topics` 引入类型；服务在运行时经
  * `ctx.get('feishuTopics')` 取得，版本不符时不调用。
@@ -30,15 +28,13 @@ export type TopicsLookup =
 
 /**
  * Classify the value `ctx.get('feishuTopics')` returned. The provider is
- * another package that may be older or newer than this one, so its version
- * is checked at run time.
+ * another package, so its contract version is checked at run time.
  * @param value - the looked-up service, or undefined.
  * @returns the usable service, or why there is none.
  */
 export function lookupTopics(value: unknown): TopicsLookup {
   if (value === undefined || value === null) return { availability: 'missing' }
-  const service = value as Partial<Record<keyof FeishuTopicService, unknown>>
-  if (service.version !== FEISHU_TOPICS_VERSION || typeof service.launch !== 'function') return { availability: 'incompatible' }
+  if ((value as { version?: unknown }).version !== FEISHU_TOPICS_VERSION) return { availability: 'incompatible' }
   return { availability: 'ready', service: value as FeishuTopicService }
 }
 

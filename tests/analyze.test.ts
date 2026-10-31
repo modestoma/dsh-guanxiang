@@ -75,7 +75,7 @@ async function harness(services: Record<string, unknown>, config: Record<string,
     inject: (deps, callback) => { if (deps.every(dep => all[dep] !== undefined)) callback(ctx) },
   }
   const { dir, cleanup } = await tempDir()
-  apply(ctx, { reposDir: join(dir, 'repos'), ...config }, { overlayPath: join(dir, 'settings.json') })
+  apply(ctx, config, { overlayPath: join(dir, 'settings.json') })
   const server: Server = createServer((req, res) => {
     const handler = routes.get(new URL(req.url ?? '/', 'http://x').pathname)
     if (handler === undefined) {
@@ -107,7 +107,7 @@ async function errorOf(response: Response): Promise<string> {
 }
 
 describe('analyze contract', () => {
-  it('keeps the fingerprint dsh-channels 0.7 stored, so earlier keys still replay', () => {
+  it('keeps a stable request fingerprint', () => {
     expect(analyzeRequestHash(REQUEST)).toBe('e12f80cd7ac63b7b3a50a509514173aaafd7c53398faceb915b893f18132c2bb')
   })
 
@@ -119,7 +119,7 @@ describe('analyze contract', () => {
     for (const field of ['requesterUserId', 'app', 'logDetails', '(body)']) expect(parsed.error).toContain(field)
   })
 
-  it('builds the analysis topic with the 0.7 card, workspace, and the raw key', () => {
+  it('builds the analysis topic with the card, workspace, and the raw key', () => {
     expect(analyzeTopicSpec(REQUEST, 'req-1')).toEqual({
       key: 'req-1',
       fingerprint: analyzeRequestHash(REQUEST),
@@ -142,7 +142,7 @@ describe('analyze contract', () => {
     })
   })
 
-  it('maps launch results to the 0.7 HTTP answers', () => {
+  it('maps launch results to HTTP answers', () => {
     expect(analyzeResponseOf({ ok: true, replayed: true, chatId: 'oc_a', messageId: 'om_a' })).toEqual({ status: 202, body: { ok: true, chatId: 'oc_a', messageId: 'om_a' } })
     const status = (code: Exclude<TopicLaunchResult, { ok: true }>['code']): number => analyzeResponseOf({ ok: false, code, message: 'x' }).status
     expect([status('not-connected'), status('forbidden-chat'), status('key-conflict'), status('send-failed'), status('invalid')]).toEqual([503, 403, 409, 502, 500])
@@ -152,13 +152,12 @@ describe('analyze contract', () => {
   it('accepts only a provider of contract version 1', () => {
     expect(lookupTopics(undefined).availability).toBe('missing')
     expect(lookupTopics({ version: 2, launch: () => undefined }).availability).toBe('incompatible')
-    expect(lookupTopics({ version: 1 }).availability).toBe('incompatible')
     expect(lookupTopics(fakeTopics()).availability).toBe('ready')
   })
 })
 
 describe('analyze route', () => {
-  it('is not registered without feishuTopics, so dsh-channels 0.7 keeps serving it', async () => {
+  it('is not registered without feishuTopics', async () => {
     const credentials = fakeCredentials()
     const h = await harness({ credentials }, { analyze: { enabled: true } })
     expect(h.routes.has('/open-api/logalyze')).toBe(false)

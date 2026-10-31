@@ -3,8 +3,7 @@
  *
  * 只在宿主同时提供 `webServer` 和版本兼容的 dsh-channels `feishuTopics`
  * 服务时注册精确路由 `POST /open-api/logalyze`；dsh-channels 未加载、重载
- * 中、版本不兼容或为 0.7 及更早版本（自己注册该路由）时观象不注册，两者
- * 不会争用同一路径。
+ * 中或版本不兼容时不注册。
  * 本模块按顺序做传输层检查：路径、开关、方法、Bearer 令牌、
  * `Idempotency-Key`、媒体类型、请求体大小和 JSON 校验；通过后交给
  * `feishuTopics`。请求体、令牌和提示词都不写日志。
