@@ -246,7 +246,7 @@ pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + �
 
 ## 发布
 
-版本号由 semantic-release 按 Conventional Commits 计算。推送到 `dev` 后，检查通过就自动发布 beta；正式版**只在手动触发时发布**，推送到 `main` 只跑检查。只有 `feat`、`fix` 或破坏性变更会产生新版本，其余类型的提交不发布。PR 标题需符合 `<type>(<scope>): <summary>`，type 取 `feat | fix | docs | test | refactor | chore | ci`。
+版本号由 semantic-release 按 Conventional Commits 计算，并始终保持 0.x：破坏性变更只升次版本号（如 0.2 → 0.3），不会升到 1.0.0。推送到 `dev` 后，检查通过就自动发布 beta；正式版**只在手动触发时发布**，推送到 `main` 只跑检查。只有 `feat`、`fix` 或破坏性变更会产生新版本，其余类型的提交不发布。PR 标题需符合 `<type>(<scope>): <summary>`，type 取 `feat | fix | docs | test | refactor | chore | ci`。
 
 | 分支 | 触发 | 版本 | npm dist-tag |
 | --- | --- | --- | --- |
