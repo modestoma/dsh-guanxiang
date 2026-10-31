@@ -7,8 +7,6 @@
  * 分析根卡片发进群并回 `202`，分析随后在卡片下的话题里流式进行。日志包由
  * 提示词调用的分析 SKILL 自行获取，详情页只列在卡片上。
  *
- * 接口原由 dsh-channels 0.7 提供；迁到观象后请求、响应和错误文本不变。
- *
  * @module dsh-guanxiang/analyze/contract
  */
 
@@ -96,8 +94,8 @@ export interface AnalyzeResponse {
 
 /**
  * Fingerprint of one validated request, used to tell a retry of the same
- * request from a reused `Idempotency-Key`. Field order is fixed: dsh-channels
- * 0.7 stored the same digest, so its accepted keys keep replaying.
+ * request from a reused `Idempotency-Key`. Field order is fixed so stored
+ * digests stay comparable.
  * @param request - the validated request.
  * @returns SHA-256 hex digest.
  */

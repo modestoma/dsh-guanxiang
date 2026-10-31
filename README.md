@@ -119,11 +119,10 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
 
 ### 仓库拉取与访问令牌
 
-应用仓库由 [dsh-repo](https://github.com/modestoma/dsh-repo)（0.1.0-beta.3 及以上）拉取，观象自己不再运行 git，需要同时安装 dsh-repo；没有 dsh-repo 或版本过旧时仓库拉取失败，原因显示在设置面板。
+应用仓库由 [dsh-repo](https://github.com/modestoma/dsh-repo) 拉取，观象自己不运行 git，需要同时安装 dsh-repo；没有 dsh-repo 或其服务版本不兼容时仓库拉取失败，原因显示在设置面板。
 
-- **镜像与快照在 dsh-repo。** 仓库镜像在 dsh-repo 的 `mirror.dir`（默认 `$DSH_HOME/dsh-repo/mirrors`）下，只用来 fetch，不检出文件；git 超时用 dsh-repo 的 `mirror.gitTimeoutMs`。旧版本的 `reposDir`、`gitTimeoutMs` 配置项仍能加载但不再生效，旧拉取目录可以手动删除。
+- **镜像与快照在 dsh-repo。** 仓库镜像在 dsh-repo 的 `mirror.dir`（默认 `$DSH_HOME/dsh-repo/mirrors`）下，只用来 fetch，不检出文件；git 超时用 dsh-repo 的 `mirror.gitTimeoutMs`。
 - **访问令牌是 dsh-repo 的主机。** https 地址属于 dsh-repo 中某个主机时，拉取自动使用该主机的令牌（GitLab 用户名 `oauth2`）。主机可以写在 dsh-repo 的 `hosts` 中，也可以在观象面板「访问令牌」分页添加；令牌存入 DSH 凭据库，面板只显示是否已设置。ssh 地址、`user@host:path`、其他主机和本地路径使用本机已有的 git 凭据（SSH key 或 credential helper），不会弹出交互式输入。
-- **旧令牌自动迁移。** 旧版本 `gitCredentials`（cordis.yml 或面板）中的每个地址，在 dsh-repo 可用后会以同样的地址、别名和已存的令牌值添加为 dsh-repo 主机；已存在的地址跳过。迁移后可以从 cordis.yml 删除 `gitCredentials`，面板下次保存时会去掉它。
 
 凭据库文件只防其他系统用户。与 DSH 中的模型 API Key 一样，Agent 的命令以同一系统用户运行，文件权限不能把令牌与 Agent 隔离（见 `@deepseek-ai/dsh-credentials-local` 文档）；建议使用权限最小、设置过期时间的令牌。
 
@@ -183,16 +182,12 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 
 日志平台调用观象的分析接口：观象经 [dsh_channels](https://github.com/modestoma/dsh_channels) 的 `feishuTopics` 服务在指定群里发一张分析卡（发起人、触发时间、应用、错误码和日志详情页表格），在卡片下开话题，把平台给的 prompt 原样交给一个新 Session（prompt 开头的斜杠命令由 DSH 展开成对应 SKILL，例如 `/guanxiang`），分析过程在话题内流式输出。分析结束后分析卡的状态标签随之更新，群里通过准入的成员都可以在该话题内追问。日志包地址写在 prompt 里，下载、解压、超时都由 prompt 调用的 SKILL 处理（Session 的沙箱需要能访问日志存储地址）。
 
-接口原由 dsh_channels 0.7 提供，从 dsh_channels 0.8 起迁到观象，请求、响应、错误文本和去重记录都不变。
-
 **前提**：
 
-- dsh_channels 0.8 及以上已加载并提供 `feishuTopics` 服务（版本 1）。没有这个服务时观象不注册接口：dsh_channels 0.7 自带同名接口，升级前由它提供；服务版本不兼容时观象记一条警告，也不注册。设置面板「分析接口」分页显示飞书渠道是否就绪。
+- dsh_channels 已加载并提供 `feishuTopics` 服务（版本 1）。没有这个服务时观象不注册接口；服务版本不兼容时观象记一条警告，也不注册。设置面板「分析接口」分页显示飞书渠道是否就绪。
 - 只有带 Web 的 profile（web、desktop）有这个接口，headless 没有。
 
 **开启**：在设置面板「分析接口」打开开关（`analyze.enabled`，默认关，保存后立即生效），并在同一页保存访问令牌（建议 32 位以上随机串）。令牌存入 DSH 凭据库的 `GUANXIANG_ANALYZE_TOKEN`（名称可用 `analyzeTokenRef` 修改），也可以设置同名环境变量或写进 `.env`。接口挂在 DSH Web 服务上（与 Web 界面同一端口），路径 `/open-api/logalyze` 放在 DSH 的 `/api` 之外，网关可以把它与需要登录的 DSH 接口分开放行；DSH 通过反向代理挂在前缀下时，地址随之带上前缀（如 `https://<域名>/dsh/open-api/logalyze`）。该路由不走 DSH 登录 cookie，访问令牌是唯一凭据。开关关闭时所有请求返回 404；令牌每次请求都重新读取，轮换后下一次请求生效；令牌未设置时所有请求返回 503。
-
-**从 dsh_channels 0.7 迁移**：把观象和 dsh_channels 一起升级；在观象面板「分析接口」打开开关并保存令牌（新名称 `GUANXIANG_ANALYZE_TOKEN`，可以填原来的令牌值，日志平台无需改动）；然后从 cordis.yml 删掉 dsh_channels 的 `analyzeEnabled` 和 `analyzeToken`（新版 dsh_channels 会对这两项打印警告）。升级前接受过的 `Idempotency-Key` 升级后照常重放。
 
 **请求**：
 

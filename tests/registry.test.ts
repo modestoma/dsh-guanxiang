@@ -96,9 +96,9 @@ describe('repository registry', () => {
     expect(registry.status()[0]).toMatchObject({ phase: 'failed', available: false })
     expect(registry.status()[0]?.error).toContain('请安装 dsh-repo')
     await expect(registry.acquire(['order-service'])).rejects.toThrow('不在应用注册表中')
-    repos.value = { version: 1 }
+    repos.value = { version: 2 }
     await registry.resyncAll()
-    expect(registry.status()[0]?.error).toContain('请升级 dsh-repo')
+    expect(registry.status()[0]?.error).toContain('服务与观象不兼容')
     repos.value = service
     await registry.resyncAll()
     expect(registry.status()[0]).toMatchObject({ phase: 'ready', available: true })

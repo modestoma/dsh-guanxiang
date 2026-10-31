@@ -167,7 +167,8 @@ export interface HostWire {
 /**
  * Whether dsh-repo provides the `dshRepos` service this plugin mirrors
  * repositories and submits proposals through: `missing` while it is not
- * loaded, `incompatible` when it is too old.
+ * loaded, `incompatible` when its contract version is not the one this
+ * plugin speaks.
  */
 export type ReposAvailability = 'ready' | 'missing' | 'incompatible'
 
@@ -184,8 +185,8 @@ export interface HostsWire {
 
 /**
  * Whether dsh-channels provides the `feishuTopics` service the analyze API
- * posts through: `missing` while it is not loaded (or older than 0.8, which
- * serves the API itself), `incompatible` when its contract version is not
+ * posts through: `missing` while it is not loaded, `incompatible` when its
+ * contract version is not
  * the one this plugin speaks.
  */
 export type TopicsAvailability = 'ready' | 'missing' | 'incompatible'
