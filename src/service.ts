@@ -14,10 +14,10 @@ import type { AnalyzeGate } from './analyze/server.ts'
 import { FEISHU_TOPICS_SERVICE, lookupTopics } from './analyze/topics.ts'
 import { Dispatcher, isDelegatedAgent, isInside } from './dispatch/tool.ts'
 import type { HostApproval, HostContext, HostCredentials, ToolActivationContext, WorkingDirectoryService } from './host.ts'
-import { DSH_REPOS_SERVICE, lookupRepos, messageOf, repoErrorCode, unavailableMessage } from './repos/lookup.ts'
+import { DSH_REPOS_SERVICE, lookupRepos, messageOf } from './repos/lookup.ts'
 import { RepoRegistry } from './repos/registry.ts'
 import { ANALYZE_ROUTE } from './settings/contract.ts'
-import type { AnalyzeWire, EditableSettings, HostsWire, StateWire, TokenStatusWire } from './settings/contract.ts'
+import type { AnalyzeWire, EditableSettings, ReposWire, StateWire, TokenStatusWire } from './settings/contract.ts'
 import { diffOverlay, overriddenKeys } from './settings/overlay.ts'
 import type { OverlayStore } from './settings/overlay.ts'
 import { createEntrySkillProvider } from './skill/entry.ts'
@@ -33,14 +33,6 @@ const tokenValue = z.string().trim()
   .refine(value => value.length > 0 && value.length <= MAX_TOKEN_LENGTH && !/[\u0000-\u001f\u007f]/.test(value), `令牌不能为空、超过 ${MAX_TOKEN_LENGTH} 个字符或包含换行等控制字符`)
 const tokenClearSchema = z.object({ tokenEnv: z.string() }).strict()
 const tokenSetSchema = tokenClearSchema.extend({ value: tokenValue }).strict()
-const hostUrlSchema = z.object({ url: z.string().trim().min(1, '主机地址不能为空') }).strict()
-const hostTokenSchema = hostUrlSchema.extend({ value: tokenValue }).strict()
-const hostAddSchema = z.object({
-  kind: z.enum(['github', 'gitlab']).optional(),
-  url: z.string().trim().min(1, '主机地址不能为空'),
-  alias: z.string().trim().max(64, '别名不能超过 64 个字符').optional().transform(value => value === '' ? undefined : value),
-  token: tokenValue.optional(),
-}).strict()
 
 /** Optional seams for tests. */
 export interface ServiceOptions {
@@ -199,6 +191,21 @@ export class LogalyzeService {
     await this.registry.resyncAll()
   }
 
+  /**
+   * Re-sync every repository after each host or token change in dsh-repo, so a
+   * new token reaches the mirrors without a manual sync.
+   * @param repos - the `dshRepos` service.
+   * @returns disposer that stops watching.
+   */
+  watchHosts(repos: DshRepoService): () => void {
+    return repos.onHostsChange(() => {
+      if (!this.active) return
+      void this.registry.resyncAll().catch((error: unknown) => {
+        this.ctx.logger?.error?.('logalyze: 主机变更后同步仓库失败：%s', messageOf(error))
+      })
+    })
+  }
+
   /** Stop registering tools; in-flight syncs finish without side effects on the host. */
   shutdown(): void {
     this.active = false
@@ -218,7 +225,7 @@ export class LogalyzeService {
       overridden: overriddenKeys(this.overlay),
       ...this.overlayError === undefined ? {} : { overlayError: this.overlayError },
       repos: this.registry.status(),
-      hosts: await this.hostsState(),
+      dshRepo: this.reposState(),
       credentialsAvailable: this.credentialStore() !== undefined,
       analyze: await this.analyzeState(),
     }
@@ -254,92 +261,10 @@ export class LogalyzeService {
     return this.ctx.get?.('credentials') as HostCredentials | undefined
   }
 
-  private async hostsState(): Promise<HostsWire> {
+  private reposState(): ReposWire {
     const lookup = lookupRepos(this.ctx.get?.(DSH_REPOS_SERVICE))
-    if (lookup.availability !== 'ready') return { availability: lookup.availability, hosts: [] }
-    const mirrorDir = lookup.service.mirrorSettings().dir
-    try {
-      const hosts = await lookup.service.listHosts()
-      return {
-        availability: 'ready',
-        mirrorDir,
-        hosts: hosts.map(host => ({
-          kind: host.kind,
-          url: host.url,
-          ...host.alias === undefined ? {} : { alias: host.alias },
-          origin: host.origin,
-          token: { tokenEnv: host.tokenRef, ...host.token },
-        })),
-      }
-    } catch (error) {
-      return { availability: 'ready', mirrorDir, hosts: [], error: messageOf(error) }
-    }
-  }
-
-  /**
-   * Add a dsh-repo host, optionally with its token, then sync every repository.
-   * @param raw - request body `{ kind?, url, alias?, token? }`.
-   * @returns the new panel state.
-   * @throws SettingsError when the body is invalid, dsh-repo is unavailable, or it refuses the host.
-   */
-  async addHost(raw: unknown): Promise<StateWire> {
-    const parsed = hostAddSchema.safeParse(raw)
-    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
-    const { kind, url, alias, token } = parsed.data
-    await this.withRepos(repos => repos.addHost({ url, ...kind === undefined ? {} : { kind }, ...alias === undefined ? {} : { alias }, ...token === undefined ? {} : { token } }))
-    return await this.state()
-  }
-
-  /**
-   * Remove a host added from a panel, and its stored token.
-   * @param raw - request body `{ url }`.
-   * @returns the new panel state.
-   * @throws SettingsError when the body is invalid, dsh-repo is unavailable, or the host is unknown or configured in cordis.yml.
-   */
-  async removeHost(raw: unknown): Promise<StateWire> {
-    const parsed = hostUrlSchema.safeParse(raw)
-    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
-    await this.withRepos(repos => repos.removeHost(parsed.data.url))
-    return await this.state()
-  }
-
-  /**
-   * Store a host's token through dsh-repo, then sync every repository.
-   * @param raw - request body `{ url, value }`.
-   * @returns the new panel state.
-   * @throws SettingsError when the body is invalid, dsh-repo is unavailable, or the host is unknown.
-   */
-  async setHostToken(raw: unknown): Promise<StateWire> {
-    const parsed = hostTokenSchema.safeParse(raw)
-    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
-    await this.withRepos(repos => repos.setHostToken(parsed.data.url, parsed.data.value))
-    return await this.state()
-  }
-
-  /**
-   * Remove a host's stored token; an environment variable of the same name applies again.
-   * @param raw - request body `{ url }`.
-   * @returns the new panel state.
-   * @throws SettingsError on the same conditions as {@link setHostToken}.
-   */
-  async clearHostToken(raw: unknown): Promise<StateWire> {
-    const parsed = hostUrlSchema.safeParse(raw)
-    if (!parsed.success) throw new SettingsError(describeIssue(parsed.error))
-    await this.withRepos(repos => repos.setHostToken(parsed.data.url, undefined))
-    return await this.state()
-  }
-
-  /** Run one host change and start a resync, reporting dsh-repo failures as field errors. */
-  private async withRepos(change: (repos: DshRepoService) => Promise<unknown>): Promise<void> {
-    const lookup = lookupRepos(this.ctx.get?.(DSH_REPOS_SERVICE))
-    if (lookup.availability !== 'ready') throw new SettingsError(unavailableMessage(lookup.availability))
-    try {
-      await change(lookup.service)
-    } catch (error) {
-      if (repoErrorCode(error) !== undefined) throw new SettingsError(messageOf(error))
-      throw error
-    }
-    void this.registry.resyncAll()
+    if (lookup.availability !== 'ready') return { availability: lookup.availability }
+    return { availability: 'ready', mirrorDir: lookup.service.mirrorSettings().dir }
   }
 
   /**

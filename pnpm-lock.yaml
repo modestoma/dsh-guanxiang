@@ -204,8 +204,8 @@ importers:
         specifier: 9.3.1
         version: 9.3.1
       dsh-repo:
-        specifier: ^0.1.0-beta.3
-        version: 0.1.0-beta.3(@deepseek-ai/cordis@4.0.5)
+        specifier: ^0.1.0-beta.4
+        version: 0.1.0-beta.4(@deepseek-ai/cordis@4.0.5)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1125,11 +1125,15 @@ packages:
     resolution: {integrity: sha512-QM8q3zDe58hqUqjraQOmzZ1LIH9SWQJTlEKCH4kJ2oQvLZk7RbQXvtDM2XEq3fwkV9CCvvH4LA0AV+ogFsBM2Q==}
     engines: {node: '>=8'}
 
-  dsh-repo@0.1.0-beta.3:
-    resolution: {integrity: sha512-CSyo0/M4KeP5MMUFzT+eaMbLDZMkQV4zC7WIp/HbROMgbu979luKZDZ/qjUhL9bDD3veOlcTIIC4QCbW+NENkw==}
+  dsh-repo@0.1.0-beta.4:
+    resolution: {integrity: sha512-aXExX3T9hCiiDXcq04++qE4LOabLL4zZWcqZLvLLps/lYWuS0UJ/32tW4GiN4q0g325e2TMU0X+KIZPVADzIzQ==}
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
+      react: ^18.2.0
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   dts-resolver@3.0.0:
     resolution: {integrity: sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q==}
@@ -3282,12 +3286,14 @@ snapshots:
     dependencies:
       is-obj: 2.0.0
 
-  dsh-repo@0.1.0-beta.3(@deepseek-ai/cordis@4.0.5):
+  dsh-repo@0.1.0-beta.4(@deepseek-ai/cordis@4.0.5)(react@18.3.1):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5
       '@gitbeaker/rest': 43.8.0
       '@octokit/rest': 22.0.1
       zod: 4.6.7
+    optionalDependencies:
+      react: 18.3.1
 
   dts-resolver@3.0.0: {}
 

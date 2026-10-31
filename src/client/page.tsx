@@ -1,15 +1,15 @@
 /**
- * 左侧栏「观象」主区页面：应用仓库、访问令牌、日志下载、分析接口、高级（含 SKILL 改进）五个
- * 分页，共用一份草稿和底部保存条。访问令牌分页管理 dsh-repo 的主机，改动立即
- * 生效，不进草稿；令牌值存入 DSH 凭据库。
+ * 左侧栏「观象」主区页面：应用仓库、日志下载、分析接口、高级（含 SKILL 改进）四个
+ * 分页，共用一份草稿和底部保存条。拉取仓库用的主机与令牌在「插件 → dsh-repo」
+ * 页面管理，应用仓库分页提供跳转。
  * 仓库拉取中时每 2 秒刷新状态。
  *
  * @module dsh-logalyze/client/page
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { AnalyzeWire, EditableKey, EditableSettings, HostAddRequest, HostKind, RepoSpec, RepoStatusWire, StateWire, TokenStatusWire } from '../settings/contract.ts'
-import { addHost, clearHostToken, clearToken, fetchState, messageOf, removeHost, resetSettings, saveHostToken, saveSettings, saveToken, syncRepos } from './api.ts'
+import type { AnalyzeWire, EditableKey, EditableSettings, RepoSpec, RepoStatusWire, StateWire, TokenStatusWire } from '../settings/contract.ts'
+import { clearToken, fetchState, messageOf, resetSettings, saveSettings, saveToken, syncRepos } from './api.ts'
 
 /** Sidebar label and page title. */
 export const PANEL_TITLE = '观象'
@@ -18,11 +18,10 @@ const KB = 1024
 const MB = 1024 * 1024
 const MINUTE = 60 * 1000
 
-type TabId = 'repos' | 'tokens' | 'download' | 'analyze' | 'advanced'
+type TabId = 'repos' | 'download' | 'analyze' | 'advanced'
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'repos', label: '应用仓库' },
-  { id: 'tokens', label: '访问令牌' },
   { id: 'download', label: '日志下载' },
   { id: 'analyze', label: '分析接口' },
   { id: 'advanced', label: '高级' },
@@ -120,27 +119,44 @@ function Overridden({ keys, name }: { keys: readonly EditableKey[]; name: Editab
   return keys.includes(name) ? <span className="lz__tag lz__tag--accent">面板设置</span> : null
 }
 
+/** Page props supplied by the client entry. */
+export interface LogalyzePageProps {
+  /** Opens dsh-repo's page on the Plugins panel; absent hides the link. */
+  readonly openRepoSettings?: (() => void) | undefined
+}
+
 /**
  * Main-column page for the `main` slot.
+ * @param props - navigation supplied by the client entry.
  * @returns the page.
  */
-export function LogalyzePage(): JSX.Element {
+export function LogalyzePage({ openRepoSettings }: LogalyzePageProps): JSX.Element {
   return (
     <section className="lz-page" aria-label={PANEL_TITLE}>
       <div className="lz-page__content">
-        <LogalyzePanel />
+        <LogalyzePanel openRepoSettings={openRepoSettings} />
       </div>
     </section>
   )
+}
+
+/**
+ * The `main` slot component, bound to a way of opening dsh-repo's settings.
+ * @param openRepoSettings - opens dsh-repo's page on the Plugins panel, or undefined while that panel is unavailable.
+ * @returns component rendering {@link LogalyzePage}.
+ */
+export function boundLogalyzePage(openRepoSettings: () => (() => void) | undefined): () => JSX.Element {
+  return () => <LogalyzePage openRepoSettings={openRepoSettings()} />
 }
 
 type Notice = { kind: 'ok' | 'error'; text: string } | undefined
 
 /**
  * Panel body: loads state, edits a draft, saves.
+ * @param props - navigation supplied by the client entry.
  * @returns the panel.
  */
-export function LogalyzePanel(): JSX.Element {
+export function LogalyzePanel({ openRepoSettings }: LogalyzePageProps): JSX.Element {
   const [state, setState] = useState<StateWire | undefined>()
   const [loadError, setLoadError] = useState<string | undefined>()
   const [draft, setDraft] = useState<Draft | undefined>()
@@ -229,17 +245,7 @@ export function LogalyzePanel(): JSX.Element {
       </header>
       {state.overlayError === undefined ? null : <div className="lz__notice lz__notice--error">面板设置文件未生效：{state.overlayError}。保存一次会用当前内容覆盖它。</div>}
       <div className="lz__body" role="tabpanel">
-        {tab === 'repos' ? <ReposTab draft={draft} setDraft={setDraft} state={state} busy={busy || dirty} onSync={(url) => { void run(() => syncRepos(url), url === undefined ? '已开始重新拉取全部仓库' : '已开始重新拉取', false) }} /> : null}
-        {tab === 'tokens'
-          ? <TokensTab
-              state={state}
-              busy={busy}
-              onAdd={async host => await run(() => addHost(host), `已添加 ${host.url}，仓库会重新拉取`, false) !== undefined}
-              onSave={async (url, value) => await run(() => saveHostToken(url, value), `已保存 ${url} 的令牌，仓库会重新拉取`, false) !== undefined}
-              onClear={(url) => { void run(() => clearHostToken(url), `已清除面板保存的 ${url} 令牌`, false) }}
-              onRemove={(url) => { void run(() => removeHost(url), `已删除 ${url}`, false) }}
-            />
-          : null}
+        {tab === 'repos' ? <ReposTab draft={draft} setDraft={setDraft} state={state} busy={busy || dirty} openRepoSettings={openRepoSettings} onSync={(url) => { void run(() => syncRepos(url), url === undefined ? '已开始重新拉取全部仓库' : '已开始重新拉取', false) }} /> : null}
         {tab === 'download' ? <DownloadTab draft={draft} setDraft={setDraft} overridden={state.overridden} /> : null}
         {tab === 'analyze'
           ? <AnalyzeTab
@@ -270,7 +276,7 @@ interface TabProps {
   setDraft: (next: Draft) => void
 }
 
-function ReposTab({ draft, setDraft, state, busy, onSync }: TabProps & { state: StateWire; busy: boolean; onSync: (url?: string) => void }): JSX.Element {
+function ReposTab({ draft, setDraft, state, busy, openRepoSettings, onSync }: TabProps & LogalyzePageProps & { state: StateWire; busy: boolean; onSync: (url?: string) => void }): JSX.Element {
   const [url, setUrl] = useState('')
   const [branch, setBranch] = useState('')
   const status = useMemo(() => new Map(state.repos.map(repo => [repo.url, repo])), [state.repos])
@@ -319,9 +325,12 @@ function ReposTab({ draft, setDraft, state, busy, onSync }: TabProps & { state: 
           <button type="button" className="lz__btn" disabled={url.trim() === ''} onClick={add}>添加</button>
         </div>
       </div>
-      {state.hosts.availability === 'ready' ? null : <div className="lz__notice lz__notice--error">{state.hosts.availability === 'missing' ? '没有加载 dsh-repo 插件，仓库无法拉取。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，仓库无法拉取。'}</div>}
-      <p className="lz__secFoot">由 dsh-repo 拉取到它的镜像目录{state.hosts.mirrorDir === undefined ? '' : `（${state.hosts.mirrorDir}）`}。https 地址使用「访问令牌」中对应主机的令牌，ssh 地址和其他主机使用本机已有的 git 凭据（SSH key 或 credential helper）。不留分支时跟随远端默认分支。每个仓库需包含 <span className="lz__mono">.dsh/logalyze.yaml</span> 与其中声明的日志分析 SKILL。删除地址不会删除本地镜像。</p>
-      {state.repos.length > 0 ? <div><button type="button" className="lz__btn" disabled={busy} onClick={() => { onSync() }}>重新拉取全部</button></div> : null}
+      {state.dshRepo.availability === 'ready' ? null : <div className="lz__notice lz__notice--error">{state.dshRepo.availability === 'missing' ? '没有加载 dsh-repo 插件，仓库无法拉取。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，仓库无法拉取。'}</div>}
+      <p className="lz__secFoot">由 dsh-repo 拉取到它的镜像目录{state.dshRepo.mirrorDir === undefined ? '' : `（${state.dshRepo.mirrorDir}）`}。https 地址使用 dsh-repo 中对应主机的令牌，主机或令牌变更后会自动重新拉取，ssh 地址和其他主机使用本机已有的 git 凭据（SSH key 或 credential helper）。不留分支时跟随远端默认分支。每个仓库需包含 <span className="lz__mono">.dsh/logalyze.yaml</span> 与其中声明的日志分析 SKILL。删除地址不会删除本地镜像。</p>
+      <div className="lz__headRow">
+        {state.repos.length > 0 ? <button type="button" className="lz__btn" disabled={busy} onClick={() => { onSync() }}>重新拉取全部</button> : null}
+        {openRepoSettings === undefined || state.dshRepo.availability === 'missing' ? null : <button type="button" className="lz__btn lz__btn--ghost" onClick={openRepoSettings}>管理主机与令牌</button>}
+      </div>
     </section>
   )
 }
@@ -329,107 +338,12 @@ function ReposTab({ draft, setDraft, state, busy, onSync }: TabProps & { state: 
 /** Credential store layers of `@deepseek-ai/dsh-credentials-local` other than its own file. */
 const TOKEN_SOURCES: Readonly<Record<string, string>> = { 'env': '启动环境变量', 'project-env': '项目 .env', 'user-env': '$DSH_HOME/.env' }
 
-const HOST_KINDS: readonly { id: HostKind; label: string }[] = [
-  { id: 'gitlab', label: 'GitLab' },
-  { id: 'github', label: 'GitHub' },
-]
-
 function tokenPill(token: TokenStatusWire | undefined): JSX.Element {
   if (token === undefined) return <span className="lz__pill"><span className="lz__dot" />保存后设置令牌</span>
   if (token.error !== undefined) return <span className="lz__pill lz__pill--bad"><span className="lz__dot" />无法读取</span>
   if (!token.configured) return <span className="lz__pill lz__pill--warn"><span className="lz__dot" />未设置令牌</span>
   const source = token.source === undefined || token.source === 'file' ? undefined : TOKEN_SOURCES[token.source] ?? token.source
   return <span className="lz__pill lz__pill--ok"><span className="lz__dot" />已设置{source === undefined ? '' : `（来自${source}）`}</span>
-}
-
-function TokensTab({ state, busy, onAdd, onSave, onClear, onRemove }: {
-  state: StateWire
-  busy: boolean
-  /** Adds the host with its token; resolves whether it succeeded. */
-  onAdd: (host: HostAddRequest) => Promise<boolean>
-  onSave: (url: string, value: string) => Promise<boolean>
-  onClear: (url: string) => void
-  onRemove: (url: string) => void
-}): JSX.Element {
-  const [kind, setKind] = useState<HostKind>('gitlab')
-  const [url, setUrl] = useState('')
-  const [alias, setAlias] = useState('')
-  const [token, setToken] = useState('')
-  const [values, setValues] = useState<Record<string, string>>({})
-  const { availability, hosts, error } = state.hosts
-  const complete = url.trim() !== '' && alias.trim() !== '' && token.trim() !== ''
-  const add = (): void => {
-    if (!complete || busy) return
-    void onAdd({ kind, url: url.trim(), alias: alias.trim(), token: token.trim() }).then((ok) => {
-      if (!ok) return
-      setUrl('')
-      setAlias('')
-      setToken('')
-    })
-  }
-  const save = (address: string): void => {
-    const value = values[address]?.trim() ?? ''
-    if (value === '' || busy) return
-    void onSave(address, value).then((ok) => { if (ok) setValues(current => ({ ...current, [address]: '' })) })
-  }
-  const submitOnEnter = (event: { key: string }): void => { if (event.key === 'Enter') add() }
-  if (availability !== 'ready') {
-    return (
-      <section className="lz__sec">
-        <h2 className="lz__secTitle">访问令牌</h2>
-        <div className="lz__notice lz__notice--error">{availability === 'missing' ? '访问令牌由 dsh-repo 插件管理，当前没有加载 dsh-repo。请安装 dsh-repo。' : 'dsh-repo 版本与观象不兼容，不能在这里管理访问令牌。'}</div>
-      </section>
-    )
-  }
-  return (
-    <section className="lz__sec">
-      <h2 className="lz__secTitle">访问令牌</h2>
-      {state.credentialsAvailable ? null : <div className="lz__notice lz__notice--error">当前 DSH 组合没有加载凭据服务（@deepseek-ai/dsh-credentials-local），无法保存或读取令牌。</div>}
-      {error === undefined ? null : <div className="lz__notice lz__notice--error">无法读取 dsh-repo 的主机：{error}</div>}
-      <div className="lz__list">
-        {hosts.length === 0 ? <div className="lz__emptyRow">还没有主机。用 https 地址拉取私有仓库时，在下面填入 GitLab 或 GitHub 地址、别名和令牌。</div> : null}
-        {hosts.map((host) => {
-          const value = values[host.url] ?? ''
-          return (
-            <div key={host.url} className="lz__row lz__row--top">
-              <div className="lz__rowText">
-                <div className="lz__rowLabel">
-                  <span>{host.alias ?? host.url}</span>
-                  <span className="lz__tag">{host.kind === 'github' ? 'GitHub' : 'GitLab'}</span>
-                  {host.origin === 'config' ? <span className="lz__tag">cordis.yml</span> : null}
-                  {tokenPill(host.token)}
-                </div>
-                {host.alias === undefined ? null : <div className="lz__rowSummary lz__mono">{host.url}</div>}
-                {host.token.error === undefined ? null : <div className="lz__rowError">{host.token.error}</div>}
-                {host.token.writable
-                  ? (
-                      <div className="lz__addRow lz__addRow--flush">
-                        <input className="lz__input lz__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder={host.token.configured ? '输入新令牌以替换' : '粘贴令牌'} value={value} onChange={(event) => { setValues({ ...values, [host.url]: event.target.value }) }} onKeyDown={(event) => { if (event.key === 'Enter') save(host.url) }} />
-                        <button type="button" className="lz__btn" disabled={busy || value.trim() === ''} onClick={() => { save(host.url) }}>保存令牌</button>
-                        {host.token.configured && host.token.source === 'file' ? <button type="button" className="lz__btn lz__btn--ghost" disabled={busy} onClick={() => { onClear(host.url) }}>清除</button> : null}
-                      </div>
-                    )
-                  : null}
-              </div>
-              <div className="lz__rowCtl">
-                {host.origin === 'added' ? <button type="button" className="lz__btn lz__btn--danger" disabled={busy} onClick={() => { onRemove(host.url) }}>删除</button> : null}
-              </div>
-            </div>
-          )
-        })}
-        <div className="lz__addForm">
-          <div className="lz__addRow lz__addRow--flush">
-            <label className="lz__field">类型<select className="lz__input" value={kind} onChange={(event) => { setKind(event.target.value as HostKind) }}>{HOST_KINDS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-            <label className="lz__field">地址<input className="lz__input" placeholder={kind === 'github' ? 'https://github.com' : 'https://gitlab.example.com'} value={url} onChange={(event) => { setUrl(event.target.value) }} onKeyDown={submitOnEnter} /></label>
-            <label className="lz__field">别名<input className="lz__input" placeholder="例如 公司 GitLab" value={alias} onChange={(event) => { setAlias(event.target.value) }} onKeyDown={submitOnEnter} /></label>
-            <label className="lz__field">令牌<input className="lz__input lz__mono" type="password" autoComplete="new-password" spellCheck={false} placeholder="粘贴个人访问令牌" value={token} onChange={(event) => { setToken(event.target.value) }} onKeyDown={submitOnEnter} /></label>
-            <button type="button" className="lz__btn lz__btn--end" disabled={busy || !complete} onClick={add}>添加</button>
-          </div>
-        </div>
-      </div>
-      <p className="lz__secFoot">主机和令牌由 dsh-repo 管理，添加、删除和保存令牌立即生效，不需要点保存。该主机下的 https 仓库使用对应令牌，ssh 地址不受影响。GitLab 拉取需要 read_repository 权限，开启 SKILL 改进时需要 api 权限；GitHub 需要 Contents 与 Pull requests 读写权限。令牌保存在 DSH 凭据库（默认 $DSH_HOME/.credentials.yaml，仅本机用户可读），面板只显示是否已设置。cordis.yml 中配置的主机只能在这里更新令牌。</p>
-    </section>
-  )
 }
 
 function DownloadTab({ draft, setDraft, overridden }: TabProps & { overridden: readonly EditableKey[] }): JSX.Element {

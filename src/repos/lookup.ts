@@ -1,6 +1,6 @@
 /**
  * dsh-repo `dshRepos` 服务的查找。观象经它维护应用仓库的本地镜像和只读快照、
- * 管理主机与令牌，并把 SKILL 修改提议提交为合并请求（GitLab MR 或 GitHub PR）。
+ * 在主机或令牌变更后重新拉取，并把 SKILL 修改提议提交为合并请求（GitLab MR 或 GitHub PR）。
  *
  * 只从 `dsh-repo/contract` 引入类型；服务在运行时经 `ctx.get('dshRepos')`
  * 取得，服务版本不符时不调用。

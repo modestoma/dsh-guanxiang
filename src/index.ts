@@ -17,7 +17,7 @@
 import { mountAnalyzeRoute } from './analyze/server.ts'
 import { resolveConfig } from './config.ts'
 import type { HostContext } from './host.ts'
-import { DSH_REPOS_SERVICE } from './repos/lookup.ts'
+import { DSH_REPOS_SERVICE, lookupRepos } from './repos/lookup.ts'
 import { LogalyzeService } from './service.ts'
 import type { ServiceOptions } from './service.ts'
 import { defaultOverlayPath, OverlayStore } from './settings/overlay.ts'
@@ -35,7 +35,7 @@ export { ENTRY_SKILL_NAME, renderEntrySkill } from './skill/entry.ts'
 export { RepoRegistry } from './repos/registry.ts'
 export { readAppManifest, MANIFEST_PATH } from './repos/manifest.ts'
 export { LogalyzeService } from './service.ts'
-export { ANALYZE_ROUTE, HOST_TOKEN_ROUTE, HOSTS_ROUTE, SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE } from './settings/contract.ts'
+export { ANALYZE_ROUTE, SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE } from './settings/contract.ts'
 export { analyzeRequestHash, parseAnalyzeRequest } from './analyze/contract.ts'
 export type { AnalyzeAccepted, AnalyzeRefused, AnalyzeRequest } from './analyze/contract.ts'
 
@@ -57,7 +57,7 @@ export interface LogalyzePluginOptions extends ServiceOptions {
 /**
  * Install the entry skill, the dispatch and SKILL proposal tools, the settings
  * routes, and the analyze route, then mirror or update the configured
- * repositories in the background.
+ * repositories in the background and again after each dsh-repo host change.
  * @param ctx - plugin context.
  * @param config - loader-validated configuration.
  * @param options - test seams.
@@ -74,10 +74,13 @@ export function apply(ctx: HostContext, config?: unknown, options: LogalyzePlugi
     })
     return () => { service.shutdown() }
   }, 'logalyze: repositories')
-  // Sync again whenever dsh-repo's service appears, including after it reloads.
-  ctx.inject?.([DSH_REPOS_SERVICE], () => {
+  // Sync again whenever dsh-repo's service appears, including after it reloads,
+  // and after every host or token change made in it.
+  ctx.inject?.([DSH_REPOS_SERVICE], (child) => {
     void service.reposAvailable().catch((error: unknown) => {
       ctx.logger?.error?.('logalyze: 同步仓库失败：%s', error instanceof Error ? error.message : String(error))
     })
+    const lookup = lookupRepos(child.get?.(DSH_REPOS_SERVICE))
+    if (lookup.availability === 'ready') child.effect(() => service.watchHosts(lookup.service), 'logalyze: dsh-repo host changes')
   })
 }
