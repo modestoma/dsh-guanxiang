@@ -1,5 +1,5 @@
 export default {
-  repositoryUrl: 'https://github.com/modestoma/dsh-guanxiang.git',
+  repositoryUrl: 'https://github.com/modestoma/dsh-logalyze.git',
   // main publishes stable versions to the npm `latest` dist-tag; dev publishes
   // `X.Y.Z-beta.N` prereleases to the `beta` dist-tag.
   branches: ['main', { name: 'dev', prerelease: 'beta', channel: 'beta' }],
