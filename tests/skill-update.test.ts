@@ -4,13 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { defaultsOf, resolveConfig } from '../src/config.ts'
 import type { Agent, ApprovalOutcome, ApprovalRequest, HostApproval } from '../src/host.ts'
-import { runGit } from '../src/repos/git.ts'
 import { RepoRegistry } from '../src/repos/registry.ts'
 import type { EditableSettings } from '../src/settings/contract.ts'
 import { DIFF_FILE, readProposal } from '../src/skill-update/proposal.ts'
 import { renderProposeValue, SkillUpdater } from '../src/skill-update/tool.ts'
 import type { DispatchedTask } from '../src/skill-update/tool.ts'
-import { createAppRepo, tempDir } from './helpers.ts'
+import { createAppRepo, createRepos, tempDir } from './helpers.ts'
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(cleanup => cleanup())) })
@@ -75,12 +74,15 @@ describe('readProposal', () => {
   })
 })
 
-/** A `dshRepos` stand-in that records commits and merge requests and tracks which branches exist. */
-function fakeRepos() {
+/**
+ * A real `dshRepos` service for mirrors whose commit, branch, and merge
+ * request calls are replaced by stand-ins that record calls and track which
+ * branches exist.
+ */
+function fakeRepos(root: string) {
   const state = { branches: new Set<string>(), changeError: undefined as Error | undefined }
   const conflict = (branch: string) => Object.assign(new Error(`分支 ${branch} 已存在`), { name: 'RepoError', code: 'conflict' })
-  const service = {
-    version: 1,
+  const service = Object.assign(Object.create(createRepos(root)) as ReturnType<typeof createRepos>, {
     getBranch: vi.fn(async (_repo: string, name: string) => state.branches.has(name) ? { name, commit: 'f'.repeat(40), protected: false, default: false } : undefined),
     commitFiles: vi.fn(async (_repo: string, request: Record<string, unknown> & { branch: string }) => {
       if (state.branches.has(request.branch)) throw conflict(request.branch)
@@ -91,7 +93,7 @@ function fakeRepos() {
       if (state.changeError !== undefined) throw state.changeError
       return { number: 7, webUrl: MR_URL }
     }),
-  }
+  })
   return { state, service }
 }
 
@@ -111,23 +113,21 @@ async function setup(): Promise<Setup> {
   const root = await dir()
   const origin = await createAppRepo(join(root, 'order-service'))
   const settings: EditableSettings = {
-    ...defaultsOf(resolveConfig({}), { DSH_HOME: root }),
+    ...defaultsOf(resolveConfig({})),
     repos: [{ url: origin }],
     skillUpdates: { enabled: true, maxFiles: 4, maxFileBytes: 65536 },
   }
-  const registry = new RepoRegistry({ git: runGit, gitTimeoutMs: 30_000, onChange: () => {} })
-  registry.configure(settings.reposDir, settings.repos)
+  const repos = fakeRepos(join(root, 'dsh-repo'))
+  const registry = new RepoRegistry({ repos: () => repos.service, onChange: () => {} })
+  registry.configure(settings.repos)
   await registry.syncAll()
   const [ready] = registry.readyApps()
   const answer: Setup['answer'] = { value: 'allowed-once' }
   const requests: ApprovalRequest[] = []
   const approval = { requests, request: vi.fn(async (req: ApprovalRequest) => { requests.push(req); return answer.value }) }
-  const repos = fakeRepos()
   const updater = new SkillUpdater({
     registry,
     settings: () => settings,
-    git: runGit,
-    gitTimeoutMs: 30_000,
     author: { name: '观象', email: 'guanxiang@example.com' },
     approval: () => approval,
     repos: () => repos.service,
@@ -238,7 +238,7 @@ describe('guanxiang_propose_skill', () => {
     await expect(updater.execute(args, exec)).rejects.toThrow('未开启')
     settings.skillUpdates = { ...settings.skillUpdates, enabled: true }
 
-    const deps = { registry, settings: () => settings, git: runGit, gitTimeoutMs: 30_000 }
+    const deps = { registry, settings: () => settings }
     const withoutApproval = new SkillUpdater({ ...deps, approval: () => undefined, repos: () => repos.service })
     await withoutApproval.inspect(task)
     await expect(withoutApproval.execute(args, exec)).rejects.toThrow('没有审批服务')

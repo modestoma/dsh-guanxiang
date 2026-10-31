@@ -6,11 +6,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { resolveConfig, defaultsOf } from '../src/config.ts'
 import { Dispatcher, renderDispatchValue } from '../src/dispatch/tool.ts'
 import type { Agent, SubagentActivation, SubagentResult, SubagentService } from '../src/host.ts'
-import { runGit } from '../src/repos/git.ts'
 import { RepoRegistry } from '../src/repos/registry.ts'
 import type { EditableSettings } from '../src/settings/contract.ts'
 import { SkillUpdater } from '../src/skill-update/tool.ts'
-import { createAppRepo, tempDir } from './helpers.ts'
+import { createAppRepo, createRepos, tempDir } from './helpers.ts'
 
 let server: Server
 let port = 0
@@ -56,17 +55,18 @@ async function setup(overrides: Partial<EditableSettings> = {}, proposals = fals
   const origin = await createAppRepo(join(dir, 'order-service'))
   const project = join(dir, 'project')
   await createAppRepo(project)
-  const registry = new RepoRegistry({ git: runGit, gitTimeoutMs: 30_000, onChange: () => {} })
+  const repos = createRepos(join(dir, 'dsh-repo'))
+  const registry = new RepoRegistry({ repos: () => repos, onChange: () => {} })
   const settings: EditableSettings = {
-    ...defaultsOf(resolveConfig({}), { DSH_HOME: dir }),
+    ...defaultsOf(resolveConfig({})),
     repos: [{ url: origin }],
     download: { allowedHosts: ['127.0.0.1'], maxBytes: 1024, timeoutMs: 5000 },
     ...overrides,
   }
-  registry.configure(settings.reposDir, settings.repos)
+  registry.configure(settings.repos)
   await registry.syncAll()
   const { service, started } = fakeSubagents()
-  const updater = new SkillUpdater({ registry, settings: () => settings, git: runGit, gitTimeoutMs: 30_000, approval: () => undefined, repos: () => undefined })
+  const updater = new SkillUpdater({ registry, settings: () => settings, approval: () => undefined, repos: () => repos })
   const dispatcher = new Dispatcher({
     registry,
     ...proposals ? { proposals: updater } : {},
@@ -87,7 +87,7 @@ async function waitForStarts(started: Started[], count: number): Promise<void> {
 
 describe('guanxiang_dispatch', () => {
   it('starts one child per task in the app repository and returns every result', async () => {
-    const { project, dispatcher, started, parent, registry } = await setup()
+    const { dir, project, dispatcher, started, parent, registry } = await setup()
     const log = join(project, 'sample-logs', 'order-service.log')
     const running = dispatcher.execute({
       tasks: [{
@@ -100,7 +100,7 @@ describe('guanxiang_dispatch', () => {
     const [child] = started
     expect(registry.status()[0]?.activeRuns).toBe(1)
     expect(child?.spec).toMatchObject({ provider: 'spawn', label: '订单服务分析', delivery: 'caller', request: { parent, maxDepth: 1 } })
-    expect(child?.spec.request.cwd).toMatch(new RegExp(`^${join(dirname(registry.status()[0]!.dir), '.snapshots', 'order-service')}/[0-9a-f]{12}-[0-9a-f]{6}$`))
+    expect(child?.spec.request.cwd).toMatch(new RegExp(`^${join(dir, 'dsh-repo', 'mirrors', '.snapshots', 'local')}/order-service-[0-9a-f]{8}/[0-9a-f]{12}-[0-9a-f]{6}$`))
     const prompt = child?.spec.request.prompt[0]?.text as string
     expect(prompt.split('\n')[0]).toBe('/log-analysis')
     const workDir = join(project, 'sample-logs', '.guanxiang', 'runs')

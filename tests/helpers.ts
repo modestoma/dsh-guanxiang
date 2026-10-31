@@ -4,6 +4,8 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { HostStore, MirrorStore, RepoService, resolveConfig as resolveRepoConfig, runGit } from 'dsh-repo'
+import type { GitRunner } from 'dsh-repo'
 
 /** The bundled example application repository. */
 export const EXAMPLE_APP = fileURLToPath(new URL('../examples/order-service', import.meta.url))
@@ -109,4 +111,34 @@ export async function serveGitOverHttp(root: string, username: string, password:
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   return { base, close: () => new Promise(resolve => { server.close(() => { resolve() }) }) }
+}
+
+/** In-memory DSH credential store. */
+export function memoryCredentials(values: Record<string, string> = {}) {
+  const store = { ...values }
+  return {
+    values: store,
+    resolve: async (ref: string) => store[ref] === undefined ? undefined : { value: store[ref], source: 'file' },
+    describe: async (ref: string) => ({ configured: store[ref] !== undefined, ...store[ref] === undefined ? {} : { source: 'file' }, writable: true }),
+    set: async (ref: string, value: string) => { store[ref] = value },
+    unset: async (ref: string) => { delete store[ref] },
+  }
+}
+
+/**
+ * A real dsh-repo `dshRepos` service keeping its mirrors and added hosts
+ * under `root`.
+ * @param root - directory for mirrors and the added-hosts file.
+ * @param config - dsh-repo `config` block.
+ * @param credentials - credential store the service reads and writes.
+ * @param git - git runner of the mirrors.
+ * @returns the service.
+ */
+export function createRepos(root: string, config: Record<string, unknown> = {}, credentials = memoryCredentials(), git: GitRunner = runGit): RepoService {
+  const resolved = resolveRepoConfig({ mirror: { dir: join(root, 'mirrors') }, hostsFile: join(root, 'hosts.json'), ...config })
+  return new RepoService(resolved, {
+    credentials,
+    hosts: new HostStore(resolved.hosts, join(root, 'hosts.json')),
+    mirrors: new MirrorStore({ git, root: join(root, 'mirrors'), timeoutMs: 30_000, maxFileBytes: resolved.limits.maxFileBytes, maxTreeEntries: resolved.limits.maxTreeEntries }),
+  })
 }

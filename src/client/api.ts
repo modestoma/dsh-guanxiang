@@ -4,8 +4,8 @@
  * @module dsh-guanxiang/client/api
  */
 
-import { SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE, TOKEN_ROUTE } from '../settings/contract.ts'
-import type { EditableSettings, MutationError, MutationOk, StateWire } from '../settings/contract.ts'
+import { HOST_TOKEN_ROUTE, HOSTS_ROUTE, SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE, TOKEN_ROUTE } from '../settings/contract.ts'
+import type { EditableSettings, HostAddRequest, MutationError, MutationOk, StateWire } from '../settings/contract.ts'
 
 /**
  * Error text of a value thrown by a request.
@@ -77,8 +77,8 @@ export async function syncRepos(url?: string): Promise<StateWire> {
 }
 
 /**
- * Store an access token in DSH's credential store.
- * @param tokenEnv - credential reference named by a saved access-token configuration.
+ * Store the analyze token in DSH's credential store.
+ * @param tokenEnv - the analyze token's credential reference.
  * @param value - token value.
  * @returns the new state, which reports only whether the token is set.
  */
@@ -87,10 +87,47 @@ export async function saveToken(tokenEnv: string, value: string): Promise<StateW
 }
 
 /**
- * Remove a stored access token.
- * @param tokenEnv - credential reference named by a saved access-token configuration.
+ * Remove the stored analyze token.
+ * @param tokenEnv - the analyze token's credential reference.
  * @returns the new state.
  */
 export async function clearToken(tokenEnv: string): Promise<StateWire> {
   return (await request<MutationOk>(TOKEN_ROUTE, { method: 'DELETE', body: JSON.stringify({ tokenEnv }) })).state
+}
+
+/**
+ * Add a dsh-repo host, with its token.
+ * @param host - kind, address, alias, and token.
+ * @returns the new state.
+ */
+export async function addHost(host: HostAddRequest): Promise<StateWire> {
+  return (await request<MutationOk>(HOSTS_ROUTE, { method: 'POST', body: JSON.stringify(host) })).state
+}
+
+/**
+ * Remove a host added from a panel.
+ * @param url - host address.
+ * @returns the new state.
+ */
+export async function removeHost(url: string): Promise<StateWire> {
+  return (await request<MutationOk>(HOSTS_ROUTE, { method: 'DELETE', body: JSON.stringify({ url }) })).state
+}
+
+/**
+ * Store a host's token.
+ * @param url - host address.
+ * @param value - token value.
+ * @returns the new state, which reports only whether the token is set.
+ */
+export async function saveHostToken(url: string, value: string): Promise<StateWire> {
+  return (await request<MutationOk>(HOST_TOKEN_ROUTE, { method: 'PUT', body: JSON.stringify({ url, value }) })).state
+}
+
+/**
+ * Remove a host's stored token.
+ * @param url - host address.
+ * @returns the new state.
+ */
+export async function clearHostToken(url: string): Promise<StateWire> {
+  return (await request<MutationOk>(HOST_TOKEN_ROUTE, { method: 'DELETE', body: JSON.stringify({ url }) })).state
 }

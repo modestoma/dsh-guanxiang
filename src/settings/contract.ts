@@ -11,8 +11,12 @@ export const STATE_ROUTE = '/guanxiang/state'
 export const SETTINGS_ROUTE = '/guanxiang/settings'
 /** POST：立即重新拉取全部仓库，或 body `{ url }` 指定的一个仓库。 */
 export const SYNC_ROUTE = '/guanxiang/sync'
-/** PUT：body `{ tokenEnv, value }` 把令牌存入 DSH 凭据库；DELETE：body `{ tokenEnv }` 删除已存的值。只接受已保存的访问令牌配置引用的名称和分析接口令牌的名称。 */
+/** PUT：body `{ tokenEnv, value }` 把分析接口令牌存入 DSH 凭据库；DELETE：body `{ tokenEnv }` 删除已存的值。只接受分析接口令牌的名称。 */
 export const TOKEN_ROUTE = '/guanxiang/token'
+/** POST：body {@link HostAddRequest} 经 dsh-repo 添加主机；DELETE：body `{ url }` 删除面板添加的主机。 */
+export const HOSTS_ROUTE = '/guanxiang/hosts'
+/** PUT：body `{ url, value }` 经 dsh-repo 保存主机令牌；DELETE：body `{ url }` 清除已存的令牌。 */
+export const HOST_TOKEN_ROUTE = '/guanxiang/host-token'
 
 /**
  * POST：日志平台分析接口（Bearer 令牌鉴权，不走 DSH 登录）。它在 DSH 的
@@ -22,25 +26,27 @@ export const ANALYZE_ROUTE = '/open-api/logalyze'
 
 /** One configured application repository. */
 export interface RepoSpec {
-  /** Git remote address, cloned with the host machine's existing git credentials or a matching {@link GitCredentialSpec}. */
+  /** Git remote address, mirrored by dsh-repo with the token of its host or the machine's existing git credentials. */
   url: string
   /** Remote branch to follow; omitted follows the remote's default branch. */
   branch?: string
 }
 
-/** Credential reference grammar of `@deepseek-ai/dsh-credentials` (a POSIX shell identifier), which {@link GitCredentialSpec.tokenEnv} follows. */
+/** Credential reference grammar of `@deepseek-ai/dsh-credentials` (a POSIX shell identifier). */
 export const TOKEN_ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-/** HTTPS access token used for the repositories under one address prefix. */
-export interface GitCredentialSpec {
-  /** `https://host[:port][/path]` (or `http://`) prefix; repository addresses under it use this token. */
+/** Code host family of a dsh-repo host. */
+export type HostKind = 'github' | 'gitlab'
+
+/** Body of a {@link HOSTS_ROUTE} POST. */
+export interface HostAddRequest {
+  /** Default `gitlab`. */
+  kind?: HostKind
+  /** `https://host[:port][/path]`. */
   url: string
-  /** Display name the panel shows for this token; omitted shows the address. */
   alias?: string
-  /** HTTP username sent with the token; GitLab personal access tokens accept `oauth2`. */
-  username: string
-  /** Credential reference (environment-variable name) whose value in DSH's credential store is the token. */
-  tokenEnv: string
+  /** Token value; omitted leaves it unset. */
+  token?: string
 }
 
 /** Log URL download policy. */
@@ -71,12 +77,8 @@ export interface AnalyzeSettings {
 
 /** The settings the Web panel can override; every field is required on the wire. */
 export interface EditableSettings {
-  /** Absolute directory holding the cloned repositories (`~` expands to the home directory). */
-  reposDir: string
-  /** Application repositories to clone and keep updated. */
+  /** Application repositories to mirror and keep updated. */
   repos: RepoSpec[]
-  /** HTTPS access tokens by address prefix; the token values stay in DSH's credential store. */
-  gitCredentials: GitCredentialSpec[]
   /** Minimum age of a repository's last sync before loading `/guanxiang` syncs it again, in milliseconds; 0 syncs on every load. */
   fetchIntervalMs: number
   /** Maximum number of child analyses one dispatch may start. */
@@ -92,7 +94,7 @@ export interface EditableSettings {
 }
 
 /** Keys of {@link EditableSettings}, in panel order. */
-export const EDITABLE_KEYS = ['reposDir', 'repos', 'gitCredentials', 'fetchIntervalMs', 'maxAppsPerRequest', 'dispatchTimeoutMs', 'download', 'skillUpdates', 'analyze'] as const satisfies readonly (keyof EditableSettings)[]
+export const EDITABLE_KEYS = ['repos', 'fetchIntervalMs', 'maxAppsPerRequest', 'dispatchTimeoutMs', 'download', 'skillUpdates', 'analyze'] as const satisfies readonly (keyof EditableSettings)[]
 
 /** One editable key. */
 export type EditableKey = (typeof EDITABLE_KEYS)[number]
@@ -120,8 +122,8 @@ export type RepoPhase = 'pending' | 'syncing' | 'ready' | 'failed'
 export interface RepoStatusWire {
   url: string
   branch?: string
-  /** Absolute directory of the fetch-only clone; children work in commit snapshots under `<reposDir>/.snapshots/`. */
-  dir: string
+  /** Absolute directory of dsh-repo's fetch-only mirror, once a sync succeeded; children work in commit snapshots dsh-repo creates. */
+  dir?: string
   phase: RepoPhase
   /** Latest synced commit, the one the catalog describes and new dispatches use. */
   commit?: string
@@ -152,12 +154,32 @@ export interface TokenStatusWire {
   error?: string
 }
 
-/** Credential store view of the panel. */
-export interface CredentialsWire {
-  /** Whether the DSH composition provides `ctx.credentials`; without it tokens cannot be stored or read. */
-  available: boolean
-  /** One entry per distinct `tokenEnv` of the effective settings; empty while unavailable. */
-  tokens: TokenStatusWire[]
+/** One dsh-repo host as the panel shows it. */
+export interface HostWire {
+  kind: HostKind
+  url: string
+  alias?: string
+  /** `config`: from dsh-repo's cordis.yml entry, not removable here; `added`: added from a panel. */
+  origin: 'config' | 'added'
+  token: TokenStatusWire
+}
+
+/**
+ * Whether dsh-repo provides the `dshRepos` service this plugin mirrors
+ * repositories and submits proposals through: `missing` while it is not
+ * loaded, `incompatible` when it is too old.
+ */
+export type ReposAvailability = 'ready' | 'missing' | 'incompatible'
+
+/** dsh-repo view of the panel. */
+export interface HostsWire {
+  availability: ReposAvailability
+  /** Configured hosts first; empty unless `ready`. */
+  hosts: HostWire[]
+  /** Mirror directory; absent unless `ready`. */
+  mirrorDir?: string
+  /** Why the hosts could not be listed. */
+  error?: string
 }
 
 /**
@@ -190,7 +212,9 @@ export interface StateWire {
   /** Why the overlay file was ignored (unreadable or invalid); panel saves replace it. */
   overlayError?: string
   repos: RepoStatusWire[]
-  credentials: CredentialsWire
+  hosts: HostsWire
+  /** Whether the DSH composition provides `ctx.credentials`; without it the analyze token cannot be stored or read. */
+  credentialsAvailable: boolean
   analyze: AnalyzeWire
 }
 

@@ -166,6 +166,9 @@ importers:
 
   .:
     dependencies:
+      diff:
+        specifier: ^8.0.4
+        version: 8.0.4
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -201,8 +204,8 @@ importers:
         specifier: 9.3.1
         version: 9.3.1
       dsh-repo:
-        specifier: ^0.1.0-beta.2
-        version: 0.1.0-beta.2(@deepseek-ai/cordis@4.0.5)
+        specifier: ^0.1.0-beta.3
+        version: 0.1.0-beta.3(@deepseek-ai/cordis@4.0.5)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1110,6 +1113,10 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
+  diff@8.0.4:
+    resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
+    engines: {node: '>=0.3.1'}
+
   dir-glob@3.0.1:
     resolution: {integrity: sha512-WkrWp9GR4KXfKGYzOLmTuGVi1UWFfws377n9cc55/tb6DuqyF6pcQ5AbiHEshaDpY9v6oaSr2XCDidGmMwdzIA==}
     engines: {node: '>=8'}
@@ -1118,8 +1125,8 @@ packages:
     resolution: {integrity: sha512-QM8q3zDe58hqUqjraQOmzZ1LIH9SWQJTlEKCH4kJ2oQvLZk7RbQXvtDM2XEq3fwkV9CCvvH4LA0AV+ogFsBM2Q==}
     engines: {node: '>=8'}
 
-  dsh-repo@0.1.0-beta.2:
-    resolution: {integrity: sha512-GBkT/5aTHsysYxGUqK7NpxPLRAYV4+HvTdjCTlZwL3jU6gKpv2c8vMlcqDrB/IrUoplXDUSYNtNfRN1afS8ZKw==}
+  dsh-repo@0.1.0-beta.3:
+    resolution: {integrity: sha512-CSyo0/M4KeP5MMUFzT+eaMbLDZMkQV4zC7WIp/HbROMgbu979luKZDZ/qjUhL9bDD3veOlcTIIC4QCbW+NENkw==}
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
@@ -3265,6 +3272,8 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
+  diff@8.0.4: {}
+
   dir-glob@3.0.1:
     dependencies:
       path-type: 4.0.0
@@ -3273,7 +3282,7 @@ snapshots:
     dependencies:
       is-obj: 2.0.0
 
-  dsh-repo@0.1.0-beta.2(@deepseek-ai/cordis@4.0.5):
+  dsh-repo@0.1.0-beta.3(@deepseek-ai/cordis@4.0.5):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5
       '@gitbeaker/rest': 43.8.0

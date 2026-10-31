@@ -26,10 +26,9 @@ describe('git address policy', () => {
 })
 
 describe('configuration', () => {
-  it('defaults every field and places checkouts under $DSH_HOME', () => {
+  it('defaults every field', () => {
     const config = resolveConfig(undefined)
-    expect(config).toMatchObject({ repos: [], fetchIntervalMs: 0, maxAppsPerRequest: 4, subagentProvider: 'spawn', refreshWaitMs: 15000 })
-    expect(defaultsOf(config, { DSH_HOME: '/home/u/.dsh' }).reposDir).toBe('/home/u/.dsh/guanxiang/repos')
+    expect(config).toMatchObject({ repos: [], gitCredentials: [], fetchIntervalMs: 0, maxAppsPerRequest: 4, subagentProvider: 'spawn', refreshWaitMs: 15000 })
     expect(defaultsOf(config).skillUpdates).toEqual({ enabled: false, maxFiles: 16, maxFileBytes: 262144 })
     expect(config.skillUpdateAuthor).toBeUndefined()
   })
@@ -51,8 +50,14 @@ describe('configuration', () => {
     expect(() => resolveConfig({ repo: [] })).toThrow()
   })
 
+  it('still loads the repository keys of earlier versions', () => {
+    const config = resolveConfig({ reposDir: '/srv/repos', gitTimeoutMs: 1000, gitCredentials: [{ url: 'https://gitlab.example.com', alias: 'gl', username: 'oauth2', tokenEnv: 'GUANXIANG_GITLAB_TOKEN' }] })
+    expect(config.gitCredentials).toEqual([{ url: 'https://gitlab.example.com', alias: 'gl', username: 'oauth2', tokenEnv: 'GUANXIANG_GITLAB_TOKEN' }])
+    expect(defaultsOf(config)).not.toHaveProperty('reposDir')
+  })
+
   it('stores only the fields that differ from the defaults', () => {
-    const defaults = defaultsOf(resolveConfig({ repos: [{ url: '/srv/a' }] }), { DSH_HOME: '/d' })
+    const defaults = defaultsOf(resolveConfig({ repos: [{ url: '/srv/a' }] }))
     const overlay = diffOverlay(defaults, { ...defaults, maxAppsPerRequest: 2 })
     expect(overlay).toEqual({ maxAppsPerRequest: 2 })
     expect(applyOverlay(defaults, overlay)).toEqual({ ...defaults, maxAppsPerRequest: 2 })

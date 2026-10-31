@@ -10,7 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { HostContext, HostRequestGate, HostWebServer } from '../host.ts'
 import { SettingsError } from '../service.ts'
 import type { GuanxiangService } from '../service.ts'
-import { SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE, TOKEN_ROUTE } from './contract.ts'
+import { HOST_TOKEN_ROUTE, HOSTS_ROUTE, SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE, TOKEN_ROUTE } from './contract.ts'
 
 type WebHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 
@@ -148,6 +148,24 @@ export function registerSettingsRoutes(server: HostWebServer, gate: HostRequestG
       handler: guarded(gate, ['PUT', 'DELETE'], async (req, res) => {
         const body = await readJsonBody(req, false)
         const state = req.method?.toUpperCase() === 'DELETE' ? await service.clearToken(body) : await service.setToken(body)
+        sendJson(res, 200, { ok: true, state })
+      }),
+    }),
+    server.register({
+      kind: 'exact',
+      path: HOSTS_ROUTE,
+      handler: guarded(gate, ['POST', 'DELETE'], async (req, res) => {
+        const body = await readJsonBody(req, false)
+        const state = req.method?.toUpperCase() === 'DELETE' ? await service.removeHost(body) : await service.addHost(body)
+        sendJson(res, 200, { ok: true, state })
+      }),
+    }),
+    server.register({
+      kind: 'exact',
+      path: HOST_TOKEN_ROUTE,
+      handler: guarded(gate, ['PUT', 'DELETE'], async (req, res) => {
+        const body = await readJsonBody(req, false)
+        const state = req.method?.toUpperCase() === 'DELETE' ? await service.clearHostToken(body) : await service.setHostToken(body)
         sendJson(res, 200, { ok: true, state })
       }),
     }),
