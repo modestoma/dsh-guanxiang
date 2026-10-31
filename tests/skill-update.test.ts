@@ -128,18 +128,18 @@ async function setup(): Promise<Setup> {
   const updater = new SkillUpdater({
     registry,
     settings: () => settings,
-    author: { name: '观象', email: 'guanxiang@example.com' },
+    author: { name: '观象', email: 'logalyze@example.com' },
     approval: () => approval,
     repos: () => repos.service,
   })
-  const workDir = join(root, 'project', '.guanxiang', 'runs', 'r1', '1-order-service')
+  const workDir = join(root, 'project', '.logalyze', 'runs', 'r1', '1-order-service')
   await mkdir(workDir, { recursive: true })
   const task: DispatchedTask = { workDir, sessionId: 'parent', app: ready!.app, url: origin, commit: ready!.commit }
   const agent: Agent = { id: 'parent', session: { header: { id: 'parent', cwd: join(root, 'project') } } }
   return { origin, registry, task, updater, settings, agent, approval, answer, repos }
 }
 
-describe('guanxiang_propose_skill', () => {
+describe('logalyze_propose_skill', () => {
   it('checks a proposal against the analyzed commit and writes its diff', async () => {
     const { origin, task, updater } = await setup()
     expect(await updater.inspect(task)).toBeUndefined()
@@ -176,10 +176,10 @@ describe('guanxiang_propose_skill', () => {
     answer.value = 'rejected'
     const rejected = await updater.execute(args, exec)
     expect(rejected.status).toBe('rejected')
-    expect(rejected.branch).toMatch(/^guanxiang\/skill-order-service-[0-9a-f]{10}$/)
+    expect(rejected.branch).toMatch(/^logalyze\/skill-order-service-[0-9a-f]{10}$/)
     expect(repos.service.commitFiles).not.toHaveBeenCalled()
     const [request] = approval.requests
-    expect(request).toMatchObject({ agent, toolName: 'guanxiang_propose_skill', callId: 'call-1', signal: exec.signal })
+    expect(request).toMatchObject({ agent, toolName: 'logalyze_propose_skill', callId: 'call-1', signal: exec.signal })
     expect(request?.displayReason?.zh).toContain(`提交新分支 ${rejected.branch}，并创建合并请求合入 main`)
     expect(request?.displayReason?.zh).toContain('.dsh/skills/log-analysis/references/formats.md（+1 −0）')
     expect(request?.displayReason?.zh).toContain('理由：日志格式里漏了 traceId 字段')
@@ -193,11 +193,11 @@ describe('guanxiang_propose_skill', () => {
       branch: opened.branch,
       baseSha: task.commit,
       newBranch: true,
-      author: { name: '观象', email: 'guanxiang@example.com' },
+      author: { name: '观象', email: 'logalyze@example.com' },
       files: [{ action: 'write', path: '.dsh/skills/log-analysis/references/formats.md', content: '第四列是 traceId\n' }],
       signal: exec.signal,
     })
-    expect(commit.message).toMatch(new RegExp(`^补充 traceId 字段说明\\n\\n日志格式里漏了 traceId 字段\\n\\nProposed-by: 观象 GuanXiang\\nAnalyzed-commit: ${task.commit}\\nSession: parent\\n$`))
+    expect(commit.message).toMatch(new RegExp(`^补充 traceId 字段说明\\n\\n日志格式里漏了 traceId 字段\\n\\nProposed-by: 观象 Logalyze\\nAnalyzed-commit: ${task.commit}\\nSession: parent\\n$`))
     expect(repos.service.createChange).toHaveBeenCalledWith(origin, {
       title: '补充 traceId 字段说明',
       body: expect.stringMatching(/^由观象在日志分析中提出（应用 order-service，分析提交 [0-9a-f]{12}，会话 parent）。理由：日志格式里漏了 traceId 字段$/),

@@ -2,7 +2,7 @@
  * 插件配置：cordis.yml 中的 `config`（经 Standard Schema 在加载时校验）与
  * Web 面板覆盖共用同一套字段校验。
  *
- * @module dsh-guanxiang/config
+ * @module dsh-logalyze/config
  */
 
 import { homedir } from 'node:os'
@@ -113,7 +113,7 @@ const configSchema = z.object({
    * Credential reference (environment-variable name) whose value is the
    * analyze API's bearer token.
    */
-  analyzeTokenRef: z.string().trim().regex(TOKEN_ENV_PATTERN, '令牌名称只能包含字母、数字和下划线，且不能以数字开头').default('GUANXIANG_ANALYZE_TOKEN'),
+  analyzeTokenRef: z.string().trim().regex(TOKEN_ENV_PATTERN, '令牌名称只能包含字母、数字和下划线，且不能以数字开头').default('LOGALYZE_ANALYZE_TOKEN'),
   /**
    * Author of SKILL improvement commits; omitted uses the user of the token
    * dsh-repo holds for the repository's host, who is always the committer.
@@ -122,20 +122,20 @@ const configSchema = z.object({
   /** Registered `ctx.subagents` provider the children start on. */
   subagentProvider: z.string().trim().min(1).default('spawn'),
   /**
-   * How long loading `/guanxiang` waits for the repository refresh before it
+   * How long loading `/logalyze` waits for the repository refresh before it
    * renders the catalog it already has, in milliseconds; the refresh keeps
    * running. 0 never waits.
    */
   refreshWaitMs: durationMs(0).default(15 * 1000),
   /**
-   * Whether top-level agents may load the entry skill without `/guanxiang`
+   * Whether top-level agents may load the entry skill without `/logalyze`
    * when a task matches the usable applications its description lists.
    */
   autoInvoke: z.boolean().default(true),
 }).strict()
 
 /** Validated plugin configuration. */
-export type GuanxiangConfig = z.output<typeof configSchema>
+export type LogalyzeConfig = z.output<typeof configSchema>
 
 /** Standard Schema the Cordis loader validates `config` with before `apply()`. */
 export const pluginConfigSchema = configSchema.prefault({})
@@ -176,9 +176,9 @@ export function describeIssue(error: z.ZodError): string {
  * @returns validated configuration.
  * @throws when the configuration is invalid.
  */
-export function resolveConfig(raw: unknown): GuanxiangConfig {
+export function resolveConfig(raw: unknown): LogalyzeConfig {
   const parsed = pluginConfigSchema.safeParse(raw ?? {})
-  if (!parsed.success) throw new Error(`guanxiang: 配置不合法：${describeIssue(parsed.error)}`)
+  if (!parsed.success) throw new Error(`logalyze: 配置不合法：${describeIssue(parsed.error)}`)
   return parsed.data
 }
 
@@ -212,7 +212,7 @@ function copyRepos(repos: readonly RepoSpec[]): RepoSpec[] {
  * @param config - validated plugin configuration.
  * @returns complete editable settings.
  */
-export function defaultsOf(config: GuanxiangConfig): EditableSettings {
+export function defaultsOf(config: LogalyzeConfig): EditableSettings {
   return {
     repos: copyRepos(config.repos),
     fetchIntervalMs: config.fetchIntervalMs,

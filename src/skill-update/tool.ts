@@ -1,10 +1,10 @@
 /**
- * `guanxiang_propose_skill`：把某个派发任务的 SKILL 修改提议提交为合并请求。
+ * `logalyze_propose_skill`：把某个派发任务的 SKILL 修改提议提交为合并请求。
  *
  * - 只接受本进程中由同一会话派发过的任务运行目录；应用、仓库和分析时的提交
  *   取自派发记录，不取自运行目录里可被 Agent 改写的内容。
  * - 只改应用 SKILL 目录 `.dsh/skills/<skill>/` 下的文件，提交以分析时的提交为
- *   父提交，提交到新分支 `guanxiang/skill-<应用 id>-<改动摘要前缀>`，从不提交到
+ *   父提交，提交到新分支 `logalyze/skill-<应用 id>-<改动摘要前缀>`，从不提交到
  *   已有分支或默认分支。
  * - 提交和创建合并请求经 dsh-repo 的 `dshRepos` 服务完成，支持 GitLab 与
  *   GitHub；令牌由 dsh-repo 按主机配置。没有该服务或版本不符时工具报错。
@@ -13,7 +13,7 @@
  *   没有审批服务时工具报错，不提交。
  * - 子会话中不提供本工具。
  *
- * @module dsh-guanxiang/skill-update/tool
+ * @module dsh-logalyze/skill-update/tool
  */
 
 import { randomBytes } from 'node:crypto'
@@ -33,7 +33,7 @@ import { DIFF_FILE, FILES_DIR, PROPOSAL_DIR, ProposalError, readProposal, REASON
 import type { ProposedFile } from './proposal.ts'
 
 /** Model-facing tool name. */
-export const PROPOSE_TOOL_NAME = 'guanxiang_propose_skill'
+export const PROPOSE_TOOL_NAME = 'logalyze_propose_skill'
 
 /** Longest accepted one-line summary; it becomes the commit subject and merge request title. */
 export const MAX_SUMMARY_CHARS = 120
@@ -287,14 +287,14 @@ export class SkillUpdater {
     }
     if (prepared === undefined) throw new Error(`${task.workDir} 中没有 SKILL 修改提议（${PROPOSAL_DIR}/${REASON_FILE} 与 ${PROPOSAL_DIR}/${FILES_DIR}/）`)
     const { change, target, diffPath, reason } = prepared
-    const branch = `guanxiang/skill-${task.app.id}-${change.digest.slice(0, 10)}`
+    const branch = `logalyze/skill-${task.app.id}-${change.digest.slice(0, 10)}`
     const base = { app: task.app.id, repo: task.url, branch, target, files: [...change.files], diffPath }
 
     if (await repos.getBranch(task.url, branch, { signal: exec.signal }) !== undefined) return { ...base, status: 'exists' }
 
     const preview = reason.replace(/\s+/g, ' ').slice(0, REASON_PREVIEW_CHARS)
     const zh = `观象将在 ${task.url} 提交新分支 ${branch}，并创建合并请求合入 ${target}。改动：${describeFiles(change.files)}。摘要：${summary}。理由：${preview}`
-    const en = `GuanXiang will commit branch ${branch} to ${task.url} and open a merge request into ${target}. Files: ${change.files.map(file => file.path).join(', ')}. Summary: ${summary}`
+    const en = `Logalyze will commit branch ${branch} to ${task.url} and open a merge request into ${target}. Files: ${change.files.map(file => file.path).join(', ')}. Summary: ${summary}`
     const outcome = await approval.request({
       agent,
       toolName: PROPOSE_TOOL_NAME,
@@ -306,7 +306,7 @@ export class SkillUpdater {
     if (outcome === 'cancelled') exec.signal.throwIfAborted()
     if (outcome !== 'allowed-once') return { ...base, status: outcome }
 
-    const message = `${summary}\n\n${reason}\n\nProposed-by: 观象 GuanXiang\nAnalyzed-commit: ${task.commit}\nSession: ${task.sessionId}\n`
+    const message = `${summary}\n\n${reason}\n\nProposed-by: 观象 Logalyze\nAnalyzed-commit: ${task.commit}\nSession: ${task.sessionId}\n`
     const description = `由观象在日志分析中提出（应用 ${task.app.id}，分析提交 ${task.commit.slice(0, 12)}，会话 ${task.sessionId}）。理由：${reason.slice(0, REASON_DESCRIPTION_CHARS)}`
     // Only files that differ from the analyzed commit; an unchanged one would be an empty update.
     const changed = new Set(change.files.map(file => file.path))

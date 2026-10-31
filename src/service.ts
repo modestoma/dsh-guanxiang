@@ -2,13 +2,13 @@
  * 观象运行时：持有生效设置（cordis.yml + 面板覆盖）、应用注册表、入口
  * SKILL、派发工具与 SKILL 提议工具的注册，并为设置面板提供状态与写入口。
  *
- * @module dsh-guanxiang/service
+ * @module dsh-logalyze/service
  */
 
 import type { DshRepoService } from 'dsh-repo/contract'
 import { z } from 'zod'
 import { applyOverlay, defaultsOf, describeIssue, editableSettingsSchema } from './config.ts'
-import type { GuanxiangConfig, SettingsOverlay } from './config.ts'
+import type { LogalyzeConfig, SettingsOverlay } from './config.ts'
 import { abortable } from './abort.ts'
 import type { AnalyzeGate } from './analyze/server.ts'
 import { FEISHU_TOPICS_SERVICE, lookupTopics } from './analyze/topics.ts'
@@ -48,7 +48,7 @@ export interface ServiceOptions {
 }
 
 /** The plugin's long-lived state. */
-export class GuanxiangService {
+export class LogalyzeService {
   readonly registry: RepoRegistry
   private readonly defaults: EditableSettings
   private overlay: SettingsOverlay = {}
@@ -70,7 +70,7 @@ export class GuanxiangService {
    */
   constructor(
     private readonly ctx: HostContext,
-    config: GuanxiangConfig,
+    config: LogalyzeConfig,
     private readonly store: OverlayStore,
     options: ServiceOptions = {},
   ) {
@@ -113,7 +113,7 @@ export class GuanxiangService {
 
   /** Register the entry skill provider; called once from `apply()`. */
   registerSkill(): void {
-    this.ctx.effect(() => this.ctx.skills.registerProvider(this.skill.factory), 'guanxiang: entry skill')
+    this.ctx.effect(() => this.ctx.skills.registerProvider(this.skill.factory), 'logalyze: entry skill')
   }
 
   /**
@@ -124,11 +124,11 @@ export class GuanxiangService {
   registerTool(): void {
     this.ctx.effect(
       () => this.ctx.tools.register(this.dispatcher.definition(), { when: context => this.offersTool(context) }),
-      'guanxiang: dispatch tool',
+      'logalyze: dispatch tool',
     )
     this.ctx.effect(
       () => this.ctx.tools.register(this.updater.definition(), { when: async context => this.current.skillUpdates.enabled && await this.offersTool(context) }),
-      'guanxiang: skill proposal tool',
+      'logalyze: skill proposal tool',
     )
   }
 
@@ -181,7 +181,7 @@ export class GuanxiangService {
       this.overlay = read.overlay
     } else {
       this.overlayError = read.error
-      this.ctx.logger?.warn?.('guanxiang: 忽略面板设置：%s', read.error)
+      this.ctx.logger?.warn?.('logalyze: 忽略面板设置：%s', read.error)
     }
     this.current = applyOverlay(this.defaults, this.overlay)
     this.registry.configure(this.current.repos)
@@ -233,7 +233,7 @@ export class GuanxiangService {
         try {
           return (await this.credentialStore()?.resolve(this.analyzeTokenRef))?.value
         } catch (error) {
-          this.ctx.logger?.warn?.('guanxiang: 读取分析接口令牌 %s 失败：%s', this.analyzeTokenRef, error instanceof Error ? error.message : String(error))
+          this.ctx.logger?.warn?.('logalyze: 读取分析接口令牌 %s 失败：%s', this.analyzeTokenRef, error instanceof Error ? error.message : String(error))
           return undefined
         }
       },

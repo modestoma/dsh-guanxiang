@@ -1,9 +1,9 @@
 /**
- * `/guanxiang` 入口 SKILL：用户可以显式调用；开启自动加载且有可用应用时，
+ * `/logalyze` 入口 SKILL：用户可以显式调用；开启自动加载且有可用应用时，
  * 顶层 Agent 也能在任务匹配时自行加载。目录描述列出已就绪的应用，正文中的
  * 应用目录在每次加载时由已就绪仓库的应用描述生成。
  *
- * @module dsh-guanxiang/skill/entry
+ * @module dsh-logalyze/skill/entry
  */
 
 import type { SkillDefinition, SkillProvider, SkillProviderControl } from '../host.ts'
@@ -11,11 +11,11 @@ import type { AppManifest } from '../settings/contract.ts'
 import { DISPATCH_TOOL_NAME } from '../dispatch/tool.ts'
 import { PROPOSE_TOOL_NAME } from '../skill-update/tool.ts'
 
-/** Entry skill name, addressed as `/guanxiang`. */
-export const ENTRY_SKILL_NAME = 'guanxiang'
+/** Entry skill name, addressed as `/logalyze`. */
+export const ENTRY_SKILL_NAME = 'logalyze'
 
 /** Skill provider name in `ctx.skills`. */
-export const SKILL_PROVIDER_NAME = 'dsh-guanxiang'
+export const SKILL_PROVIDER_NAME = 'dsh-logalyze'
 
 /** DSH's precedence rank for packaged skill providers (`BUNDLED_SKILL_RANK`). */
 export const BUNDLED_SKILL_RANK = 600
@@ -56,7 +56,7 @@ function cell(text: string): string {
  */
 export function renderCatalog(apps: readonly AppManifest[]): string {
   if (apps.length === 0) {
-    return '当前没有可用的应用。请告诉用户：在 DSH Web 左侧栏「观象」面板的「应用仓库」中添加应用的 git 地址，并确认仓库已拉取成功、包含 `.dsh/guanxiang.yaml` 与对应的日志分析 SKILL。然后结束本次回复，不要自行分析日志。'
+    return '当前没有可用的应用。请告诉用户：在 DSH Web 左侧栏「观象」面板的「应用仓库」中添加应用的 git 地址，并确认仓库已拉取成功、包含 `.dsh/logalyze.yaml` 与对应的日志分析 SKILL。然后结束本次回复，不要自行分析日志。'
   }
   const rows = apps.map(app => `| \`${app.id}\` | ${cell(app.name)} | ${cell(app.description)} | ${cell(app.aliases.join('、') || '—')} | ${cell(app.logHints.map(hint => `\`${hint}\``).join(' ') || '—')} |`)
   return ['| 应用 id | 名称 | 描述 | 别名 | 日志特征 |', '| --- | --- | --- | --- | --- |', ...rows].join('\n')
@@ -88,11 +88,11 @@ ${renderCatalog(apps)}
 
 ## 步骤
 
-1. **读需求。** 从 \`/guanxiang\` 之后的文字、消息附带的附件、消息里的下载 URL 中找出：要分析的现象、时间范围、关键标识（用户 id、订单号、请求 id 等）、日志位置。
+1. **读需求。** 从 \`/logalyze\` 之后的文字、消息附带的附件、消息里的下载 URL 中找出：要分析的现象、时间范围、关键标识（用户 id、订单号、请求 id 等）、日志位置。
 2. **确定应用。** 拆分单位是「日志来源 → 应用」。
    - 用户或调用方已经写明应用 id 时直接使用；该 id 不在上表中时，告诉用户这个应用未注册（列出可用的应用 id），然后结束，不要改用别的应用。
    - 否则按名称、别名、描述和日志特征匹配。只有附件文件名或内容能区分时，可以只看日志开头几十行来判断，不要通读或解压整个日志。
-   - 用户没有输入 \`/guanxiang\`、是你按任务匹配自行加载了本 SKILL，而日志明显不属于上表任何应用时，不要派发也不要追问，按普通方式完成用户的请求。
+   - 用户没有输入 \`/logalyze\`、是你按任务匹配自行加载了本 SKILL，而日志明显不属于上表任何应用时，不要派发也不要追问，按普通方式完成用户的请求。
    - 其余无法确定或同时匹配多个应用的情况，用 \`ask_user_question\`（不可用时直接在回复中提问并结束）让用户选择，不要猜。
    - 一个文件混有多个应用的输出时，把同一路径分别交给各应用，并在 \`filter\` 里写明区分方式（tag、进程名等）。
 3. **派发。** 一次调用 \`${DISPATCH_TOOL_NAME}\`，把所有任务放进 \`tasks\`（最多 ${maxAppsPerRequest} 个）：
@@ -136,7 +136,7 @@ export interface EntrySkillSource {
   maxAppsPerRequest(): number
   /** Whether SKILL improvement proposals are enabled. */
   skillUpdates(): boolean
-  /** Whether top-level agents may load the skill without `/guanxiang`. */
+  /** Whether top-level agents may load the skill without `/logalyze`. */
   readonly autoInvoke: boolean
   /**
    * Whether a lookup directory lies in the repository directory children work
@@ -166,7 +166,7 @@ export function createEntrySkillProvider(source: EntrySkillSource): {
     return {
       name: ENTRY_SKILL_NAME,
       description: automatic ? describeApps(apps) : MANUAL_DESCRIPTION,
-      whenToUse: automatic ? '用户输入 /guanxiang，或要分析、排查描述中所列应用的日志时使用。' : '仅在用户输入 /guanxiang 时使用。',
+      whenToUse: automatic ? '用户输入 /logalyze，或要分析、排查描述中所列应用的日志时使用。' : '仅在用户输入 /logalyze 时使用。',
       invocation: { modelInvocable: automatic, userInvocable: true },
       source: 'bundled',
       provider: SKILL_PROVIDER_NAME,

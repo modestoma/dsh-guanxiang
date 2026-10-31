@@ -26,7 +26,7 @@ export function git(cwd: string, ...args: string[]): string {
 }
 
 /** A temporary directory removed by the returned cleanup. */
-export async function tempDir(prefix = 'guanxiang-'): Promise<{ dir: string; cleanup: () => Promise<void> }> {
+export async function tempDir(prefix = 'logalyze-'): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), prefix))
   return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) }
 }

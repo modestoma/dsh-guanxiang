@@ -1,7 +1,7 @@
 /**
- * 设置面板的同源 HTTP 客户端，直接请求 Host 半侧注册的 `/guanxiang/*` 路由。
+ * 设置面板的同源 HTTP 客户端，直接请求 Host 半侧注册的 `/logalyze/*` 路由。
  *
- * @module dsh-guanxiang/client/api
+ * @module dsh-logalyze/client/api
  */
 
 import { HOST_TOKEN_ROUTE, HOSTS_ROUTE, SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE, TOKEN_ROUTE } from '../settings/contract.ts'

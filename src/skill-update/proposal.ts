@@ -6,7 +6,7 @@
  * 运行目录对 Agent 可写，所以这里读到的一切都按不可信输入校验：只接受普通
  * 文件和目录（不跟随符号链接）、受限的文件名、UTF-8 文本、文件数与大小上限。
  *
- * @module dsh-guanxiang/skill-update/proposal
+ * @module dsh-logalyze/skill-update/proposal
  */
 
 import { lstat, readdir, readFile } from 'node:fs/promises'

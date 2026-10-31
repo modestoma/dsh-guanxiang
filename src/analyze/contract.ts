@@ -7,7 +7,7 @@
  * 分析根卡片发进群并回 `202`，分析随后在卡片下的话题里流式进行。日志包由
  * 提示词调用的分析 SKILL 自行获取，详情页只列在卡片上。
  *
- * @module dsh-guanxiang/analyze/contract
+ * @module dsh-logalyze/analyze/contract
  */
 
 import { createHash } from 'node:crypto'

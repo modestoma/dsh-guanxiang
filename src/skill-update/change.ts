@@ -3,7 +3,7 @@
  * 的文件比较，算出逐文件行数和 unified diff，不改动任何镜像或快照。提议内容的
  * 摘要用作新分支名，提交本身经 dsh-repo 完成。
  *
- * @module dsh-guanxiang/skill-update/change
+ * @module dsh-logalyze/skill-update/change
  */
 
 import { createHash } from 'node:crypto'

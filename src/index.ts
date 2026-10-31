@@ -1,30 +1,30 @@
 /**
- * 观象 GuanXiang —— DeepSeek Harness 日志分析插件。观其象，知其因。
+ * 观象 Logalyze —— DeepSeek Harness 日志分析插件。观其象，知其因。
  *
- * 提供入口 SKILL `/guanxiang`（识别日志属于哪个应用；用户显式调用，或在
+ * 提供入口 SKILL `/logalyze`（识别日志属于哪个应用；用户显式调用，或在
  * 任务匹配已注册应用时由顶层 Agent 自行加载）和
- * `guanxiang_dispatch` 工具（按应用派发子 Agent，工作目录为该应用的代码
+ * `logalyze_dispatch` 工具（按应用派发子 Agent，工作目录为该应用的代码
  * 仓库，首条消息用 `/<skill>` 加载仓库里的日志分析 SKILL），以及开启 SKILL
- * 改进时的 `guanxiang_propose_skill` 工具（经用户授权后经 dsh-repo 把子 Agent
+ * 改进时的 `logalyze_propose_skill` 工具（经用户授权后经 dsh-repo 把子 Agent
  * 的 SKILL 修改提议提交到新分支并创建合并请求）。应用仓库在设置
  * 面板中只填 git 地址，由插件拉取；应用描述来自各仓库的
- * `.dsh/guanxiang.yaml`。另提供日志平台分析接口 `POST /open-api/logalyze`，
+ * `.dsh/logalyze.yaml`。另提供日志平台分析接口 `POST /open-api/logalyze`，
  * 经 dsh-channels 的 `feishuTopics` 服务在飞书群话题中开始分析。
  *
- * @module dsh-guanxiang
+ * @module dsh-logalyze
  */
 
 import { mountAnalyzeRoute } from './analyze/server.ts'
 import { resolveConfig } from './config.ts'
 import type { HostContext } from './host.ts'
 import { DSH_REPOS_SERVICE } from './repos/lookup.ts'
-import { GuanxiangService } from './service.ts'
+import { LogalyzeService } from './service.ts'
 import type { ServiceOptions } from './service.ts'
 import { defaultOverlayPath, OverlayStore } from './settings/overlay.ts'
 import { mountSettingsRoutes } from './settings/routes.ts'
 
 export type * from './settings/contract.ts'
-export type { GuanxiangConfig, SettingsOverlay } from './config.ts'
+export type { LogalyzeConfig, SettingsOverlay } from './config.ts'
 export { pluginConfigSchema, resolveConfig } from './config.ts'
 export { DISPATCH_TOOL_NAME, Dispatcher } from './dispatch/tool.ts'
 export type { DispatchValue, TaskResult } from './dispatch/tool.ts'
@@ -34,13 +34,13 @@ export type { DispatchedTask, ProposalCheck, ProposeStatus, ProposeValue } from 
 export { ENTRY_SKILL_NAME, renderEntrySkill } from './skill/entry.ts'
 export { RepoRegistry } from './repos/registry.ts'
 export { readAppManifest, MANIFEST_PATH } from './repos/manifest.ts'
-export { GuanxiangService } from './service.ts'
+export { LogalyzeService } from './service.ts'
 export { ANALYZE_ROUTE, HOST_TOKEN_ROUTE, HOSTS_ROUTE, SETTINGS_ROUTE, STATE_ROUTE, SYNC_ROUTE } from './settings/contract.ts'
 export { analyzeRequestHash, parseAnalyzeRequest } from './analyze/contract.ts'
 export type { AnalyzeAccepted, AnalyzeRefused, AnalyzeRequest } from './analyze/contract.ts'
 
 /** Cordis plugin name. */
-export const name = 'guanxiang'
+export const name = 'logalyze'
 
 /** Host services the plugin needs before `apply()`. */
 export const inject = ['tools', 'skills', 'subagents'] as const
@@ -49,8 +49,8 @@ export const inject = ['tools', 'skills', 'subagents'] as const
 export { pluginConfigSchema as Config } from './config.ts'
 
 /** Direct-invocation options (tests and embedding hosts). */
-export interface GuanxiangPluginOptions extends ServiceOptions {
-  /** Overlay file path; defaults to `$DSH_HOME/guanxiang/settings.json`. */
+export interface LogalyzePluginOptions extends ServiceOptions {
+  /** Overlay file path; defaults to `$DSH_HOME/logalyze/settings.json`. */
   readonly overlayPath?: string
 }
 
@@ -62,22 +62,22 @@ export interface GuanxiangPluginOptions extends ServiceOptions {
  * @param config - loader-validated configuration.
  * @param options - test seams.
  */
-export function apply(ctx: HostContext, config?: unknown, options: GuanxiangPluginOptions = {}): void {
-  const service = new GuanxiangService(ctx, resolveConfig(config), new OverlayStore(options.overlayPath ?? defaultOverlayPath()), options)
+export function apply(ctx: HostContext, config?: unknown, options: LogalyzePluginOptions = {}): void {
+  const service = new LogalyzeService(ctx, resolveConfig(config), new OverlayStore(options.overlayPath ?? defaultOverlayPath()), options)
   service.registerSkill()
   service.registerTool()
   mountSettingsRoutes(ctx, service)
   mountAnalyzeRoute(ctx, service.analyzeGate())
   ctx.effect(() => {
     void service.boot().catch((error: unknown) => {
-      ctx.logger?.error?.('guanxiang: 启动失败：%s', error instanceof Error ? error.message : String(error))
+      ctx.logger?.error?.('logalyze: 启动失败：%s', error instanceof Error ? error.message : String(error))
     })
     return () => { service.shutdown() }
-  }, 'guanxiang: repositories')
+  }, 'logalyze: repositories')
   // Sync again whenever dsh-repo's service appears, including after it reloads.
   ctx.inject?.([DSH_REPOS_SERVICE], () => {
     void service.reposAvailable().catch((error: unknown) => {
-      ctx.logger?.error?.('guanxiang: 同步仓库失败：%s', error instanceof Error ? error.message : String(error))
+      ctx.logger?.error?.('logalyze: 同步仓库失败：%s', error instanceof Error ? error.message : String(error))
     })
   })
 }

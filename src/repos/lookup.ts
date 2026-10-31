@@ -5,7 +5,7 @@
  * 只从 `dsh-repo/contract` 引入类型；服务在运行时经 `ctx.get('dshRepos')`
  * 取得，服务版本不符时不调用。
  *
- * @module dsh-guanxiang/repos/lookup
+ * @module dsh-logalyze/repos/lookup
  */
 
 import type { DshRepoService, DshReposVersion, RepoErrorCode } from 'dsh-repo/contract'

@@ -10,7 +10,7 @@
  *   或 SKILL 不合法时该应用不可用。
  * - 多个仓库声明同一个应用 id 时，这些仓库全部不可用。
  *
- * @module dsh-guanxiang/repos/registry
+ * @module dsh-logalyze/repos/registry
  */
 
 import type { DshRepoService, SnapshotLease } from 'dsh-repo/contract'

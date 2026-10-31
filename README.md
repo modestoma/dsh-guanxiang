@@ -1,4 +1,4 @@
-# 观象 GuanXiang
+# 观象（dsh-logalyze）
 
 > **观其象，知其因。**
 
@@ -6,11 +6,11 @@
 
 名称取意于《周易》的观象思想：以日志为象，以推理为径，从复杂的系统运行痕迹中洞察异常、关联线索、追溯根因。
 
-中文名统一使用「观象」，英文品牌统一使用「GuanXiang」。
+界面上显示的插件名是「观象」；npm 包名、入口命令、工具、路由、配置文件和代码标识统一使用 logalyze。
 
 ## 项目状态
 
-初版（未发布到 npm）：打通「`/guanxiang` 入口 → 识别应用 → 派发子 Agent 到应用代码仓库 → 汇总结论」这条链路，附带一个示例应用仓库。接口仍可能调整。
+初版（未发布到 npm）：打通「`/logalyze` 入口 → 识别应用 → 派发子 Agent 到应用代码仓库 → 汇总结论」这条链路，附带一个示例应用仓库。接口仍可能调整。
 
 ## 核心能力
 
@@ -45,11 +45,11 @@
 观象是分体结构：插件只负责识别与派发，各应用的日志分析知识跟着应用代码放在应用自己的仓库里。
 
 ```
-用户：/guanxiang 订单服务昨晚 21 点下单报 500，日志见附件
+用户：/logalyze 订单服务昨晚 21 点下单报 500，日志见附件
         │
         ▼
-入口 SKILL（意图识别）── 先 fetch 各仓库，应用目录由远端最新提交的 .dsh/guanxiang.yaml 生成
-        │  guanxiang_dispatch({ tasks: [{ app, question, logs }] })
+入口 SKILL（意图识别）── 先 fetch 各仓库，应用目录由远端最新提交的 .dsh/logalyze.yaml 生成
+        │  logalyze_dispatch({ tasks: [{ app, question, logs }] })
         ▼
 派发工具：校验应用 id → 下载 URL 日志 → 并行启动子 Agent，等待全部结束
         │  子 Agent 工作目录 = 应用仓库，首条消息以 /<skill> 开头加载该应用的日志分析 SKILL
@@ -57,12 +57,12 @@
 父 Agent 按应用分节汇总，涉及多个应用时给出跨应用的推演
 ```
 
-- **一个入口，两种触发。** 入口 SKILL 是 `/guanxiang`，dsh 在 Web、TUI、ACP 以及经 dsh_channels 的飞书消息中都能识别它。有可用应用且 `autoInvoke` 开启（默认）时，模型也能自行加载：dsh 给顶层 Agent 的 skill 目录里，观象的描述会列出每个可用应用的名称、id、别名和日志特征（总长不超过 500 字，放不下的只计数），用户说「分析这份订单服务的日志」或贴出带 `OrderController` 的报错时，模型会先加载观象。日志明显不属于任何已注册应用时，入口 SKILL 让模型按普通方式处理，不派发也不追问。子 Agent 的工作目录在 dsh-repo 的镜像目录内，那里不列出观象。应用增删时 dsh 会追加一条新的 skill 目录消息；想要确定触发时仍用 `/guanxiang`。
+- **一个入口，两种触发。** 入口 SKILL 是 `/logalyze`，dsh 在 Web、TUI、ACP 以及经 dsh_channels 的飞书消息中都能识别它。有可用应用且 `autoInvoke` 开启（默认）时，模型也能自行加载：dsh 给顶层 Agent 的 skill 目录里，观象的描述会列出每个可用应用的名称、id、别名和日志特征（总长不超过 500 字，放不下的只计数），用户说「分析这份订单服务的日志」或贴出带 `OrderController` 的报错时，模型会先加载观象。日志明显不属于任何已注册应用时，入口 SKILL 让模型按普通方式处理，不派发也不追问。子 Agent 的工作目录在 dsh-repo 的镜像目录内，那里不列出观象。应用增删时 dsh 会追加一条新的 skill 目录消息；想要确定触发时仍用 `/logalyze`。
 - **派发由代码完成。** 模型只给出应用 id、问题和日志位置；仓库目录、应用 SKILL、并发上限都由插件决定。应用 id 必须与注册表一一对应，否则整次派发被拒绝。
 - **日志一律以绝对路径交给子 Agent。** 附件和本机文件直接传路径；消息里的对象存储下载链接由派发工具下载（只允许白名单域名，不带鉴权，限制大小与耗时）。日志包不解压，由应用的日志分析 SKILL 在运行目录里解压。
-- **应用目录随时最新。** 每次加载 `/guanxiang` 都先经 dsh-repo `git fetch` 各仓库（间隔由 `fetchIntervalMs` 控制，默认每次），再从远端分支最新提交的 git 对象读取应用描述生成应用目录。fetch 不改动任何检出，所以正在进行的分析不会挡住更新。最多等待 `refreshWaitMs`，超时就先用已有的目录，fetch 在后台继续。
+- **应用目录随时最新。** 每次加载 `/logalyze` 都先经 dsh-repo `git fetch` 各仓库（间隔由 `fetchIntervalMs` 控制，默认每次），再从远端分支最新提交的 git 对象读取应用描述生成应用目录。fetch 不改动任何检出，所以正在进行的分析不会挡住更新。最多等待 `refreshWaitMs`，超时就先用已有的目录，fetch 在后台继续。
 - **代码快照不可变。** 子 Agent 在 dsh-repo 按提交创建的 `git worktree` 只读快照里工作。快照创建后不再改动，同一提交的派发共用一份；没有分析在用、且已不是最新提交的快照会被删除。
-- **运行目录。** 每次派发在父会话目录下创建 `.guanxiang/runs/<runId>/<序号>-<应用 id>/`，下载的日志放在这里，子 Agent 也只在这里写文件；应用仓库对子 Agent 只读。
+- **运行目录。** 每次派发在父会话目录下创建 `.logalyze/runs/<runId>/<序号>-<应用 id>/`，下载的日志放在这里，子 Agent 也只在这里写文件；应用仓库对子 Agent 只读。
 - **等待式派发。** 工具等待所有子 Agent 结束后一次返回，一条消息对应一张完整回复；超过派发超时或调用被取消时停止仍在运行的子 Agent。子会话中不提供派发工具。
 - **SKILL 改进（可选，默认关闭）。** 子 Agent 发现应用的日志分析 SKILL 有欠缺时，可以在运行目录写出修改提议；经用户授权后，观象经 [dsh-repo](https://github.com/modestoma/dsh-repo) 把它提交到应用仓库的新分支并创建合并请求（GitLab MR 或 GitHub PR），见 [SKILL 改进](#skill-改进)。
 
@@ -74,26 +74,26 @@
 
 ```bash
 # 在 deepseek-harness 仓库内：把 npm 包安装进 web profile
-DSH_HOME=$DSH_HOME pnpm dsh plugin --profile web add @modesto_ma/dsh-guanxiang
+DSH_HOME=$DSH_HOME pnpm dsh plugin --profile web add dsh-logalyze
 ```
 
 本地 checkout 开发时：
 
 ```bash
 pnpm build
-DSH_HOME=$DSH_HOME pnpm dsh plugin --profile web add link:/path/to/dsh-guanxiang
+DSH_HOME=$DSH_HOME pnpm dsh plugin --profile web add link:/path/to/dsh-logalyze
 ```
 
-npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pnpm build`。安装或修改后重启 dsh。包内的 `cordis.patch.yml` 把 `@modesto_ma/dsh-guanxiang` 加入 profile 的 bundle 列表，并提供稳定 `id: guanxiang` 的 Loader 行。可在 profile 的 patch 中按该 id 配置默认值：
+npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pnpm build`。安装或修改后重启 dsh。包内的 `cordis.patch.yml` 把 `dsh-logalyze` 加入 profile 的 bundle 列表，并提供稳定 `id: logalyze` 的 Loader 行。可在 profile 的 patch 中按该 id 配置默认值：
 
 ```yaml
-- id: guanxiang
+- id: logalyze
   config:
     repos:
       - url: git@github.com:example/order-service.git
       - url: https://github.com/example/pay-service.git
         branch: release                # 可选，默认跟随远端默认分支
-    fetchIntervalMs: 0                 # 加载 /guanxiang 时距上次拉取超过该时间的仓库先 fetch；0 = 每次
+    fetchIntervalMs: 0                 # 加载 /logalyze 时距上次拉取超过该时间的仓库先 fetch；0 = 每次
     maxAppsPerRequest: 4               # 单次派发的任务上限
     dispatchTimeoutMs: 1800000         # 等待全部子 Agent 的上限
     download:
@@ -101,18 +101,18 @@ npm 发行包已包含构建产物；本地 `link:` 安装前必须先执行 `pn
       maxBytes: 536870912
       timeoutMs: 600000
     subagentProvider: spawn            # 子 Agent 使用的 ctx.subagents provider
-    refreshWaitMs: 15000               # 加载 /guanxiang 时等待 fetch 的上限；0 = 不等待
-    autoInvoke: true                   # 任务匹配已注册应用时模型可自行加载入口 SKILL；false = 只能输入 /guanxiang
+    refreshWaitMs: 15000               # 加载 /logalyze 时等待 fetch 的上限；0 = 不等待
+    autoInvoke: true                   # 任务匹配已注册应用时模型可自行加载入口 SKILL；false = 只能输入 /logalyze
     skillUpdates:                      # SKILL 改进，见下文
       enabled: false                   # 默认关闭
       maxFiles: 16                     # 一次提议最多新增或修改的文件数
       maxFileBytes: 262144             # 提议中单个文件的大小上限
     skillUpdateAuthor:                 # 可选：SKILL 改进提交的作者；省略时是 dsh-repo 中该主机令牌的主人
       name: 观象
-      email: guanxiang@example.com
+      email: logalyze@example.com
     analyze:                           # 日志平台分析接口，见下文
       enabled: false                   # 默认关闭
-    analyzeTokenRef: GUANXIANG_ANALYZE_TOKEN  # 接口访问令牌在 DSH 凭据库中的名称
+    analyzeTokenRef: LOGALYZE_ANALYZE_TOKEN  # 接口访问令牌在 DSH 凭据库中的名称
 ```
 
 配置在加载时校验，不合法时插件加载失败。git 地址支持 https/http/ssh/git/file URL、`user@host:path` 和绝对路径。
@@ -140,13 +140,13 @@ DSH Web 左侧栏的「观象」入口打开整页设置面板：
 | 分析接口 | [日志平台分析接口](#日志平台分析接口)的开关、访问令牌（只显示是否已设置）、飞书渠道是否就绪，以及调用地址与字段摘要 |
 | 高级 | 更新间隔、单次应用数上限、派发超时、SKILL 改进开关与提议上限，恢复 cordis.yml 配置 |
 
-面板保存的值写入 `$DSH_HOME/guanxiang/settings.json`（只保存与 cordis.yml 不同的字段），按与配置相同的规则校验；主机保存在 dsh-repo，令牌值存入 DSH 凭据库。面板接口 `/guanxiang/*` 使用 DSH 自己的登录与来源校验，写操作另做同源校验。
+面板保存的值写入 `$DSH_HOME/logalyze/settings.json`（只保存与 cordis.yml 不同的字段），按与配置相同的规则校验；主机保存在 dsh-repo，令牌值存入 DSH 凭据库。面板接口 `/logalyze/*` 使用 DSH 自己的登录与来源校验，写操作另做同源校验。
 
 ## 应用仓库约定
 
 每个应用仓库需要两样东西（完整示例见 [examples/order-service](examples/order-service)）：
 
-`.dsh/guanxiang.yaml` 应用描述：
+`.dsh/logalyze.yaml` 应用描述：
 
 ```yaml
 id: order-service               # 小写短横线格式，派发与分析请求按它对应应用
@@ -167,9 +167,9 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 
 1. **子 Agent 写提议。** 子 Agent 的任务消息多出一节说明：把要改的文件从 `.dsh/skills/<skill>/` 复制到运行目录的 `skill-proposal/files/`（保持相对路径）后修改，理由写进 `skill-proposal/reason.md`。仓库对子 Agent 仍然只读。
 2. **派发结果标出提议。** 派发结束后，观象检查已完成任务的提议：只接受普通文件和受限的文件名、UTF-8 文本、文件数与大小上限，`SKILL.md` 不能设置 `user-invocable: false`。合格的提议在结果中给出改动行数，并在运行目录写出 `skill-proposal.diff`；不合格的给出原因。
-3. **父 Agent 展示并提交。** 入口 SKILL 让父 Agent 在汇总回复后附上改动和 diff，再调用 `guanxiang_propose_skill`（参数为任务的运行目录和一句话摘要）。只接受本次 DSH 运行中由同一会话派发过的任务；应用、仓库和分析时的提交取自派发记录。
+3. **父 Agent 展示并提交。** 入口 SKILL 让父 Agent 在汇总回复后附上改动和 diff，再调用 `logalyze_propose_skill`（参数为任务的运行目录和一句话摘要）。只接受本次 DSH 运行中由同一会话派发过的任务；应用、仓库和分析时的提交取自派发记录。
 4. **请求授权。** 工具通过 DSH 的审批服务（`ctx.approval`，`@deepseek-ai/dsh-user-approval`）请求一次性授权，说明将提交的仓库、分支、目标分支、改动文件和理由。经 dsh_channels 使用时显示为飞书决策卡片，在 DSH Web 中显示为审批提示；观象与 dsh_channels 之间没有代码依赖。只有「允许」才提交；拒绝、撤回或没有可回答的界面时都不提交。会话的审批策略为 `never`（例如 DSH 的「完全访问」权限模式）时请求一律被拒绝，所以要在「询问」类权限模式下使用；DSH 组合没有审批服务时工具报错。
-5. **提交新分支并创建合并请求。** 观象进程（不是 Agent）经 `dshRepos` 以分析时的提交为起点建新分支 `guanxiang/skill-<应用 id>-<改动摘要前缀>`，提交 `.dsh/skills/<skill>/` 下有改动的文件，再创建合入跟踪分支的合并请求，返回它的链接。同一改动的分支已存在时不再请求授权，也不提交；等待授权期间分支被别人建出时同样不提交。从不提交到已有分支或默认分支，合并由仓库的评审流程决定；合并后下次 `/guanxiang` 拉取即生效。提交成功但合并请求创建失败时，工具返回分支和失败原因，可以在代码托管平台上手动创建。
+5. **提交新分支并创建合并请求。** 观象进程（不是 Agent）经 `dshRepos` 以分析时的提交为起点建新分支 `logalyze/skill-<应用 id>-<改动摘要前缀>`，提交 `.dsh/skills/<skill>/` 下有改动的文件，再创建合入跟踪分支的合并请求，返回它的链接。同一改动的分支已存在时不再请求授权，也不提交；等待授权期间分支被别人建出时同样不提交。从不提交到已有分支或默认分支，合并由仓库的评审流程决定；合并后下次 `/logalyze` 拉取即生效。提交成功但合并请求创建失败时，工具返回分支和失败原因，可以在代码托管平台上手动创建。
 
 注意：
 
@@ -180,14 +180,14 @@ skill: log-analysis             # 对应 .dsh/skills/log-analysis/SKILL.md
 
 ## 日志平台分析接口
 
-日志平台调用观象的分析接口：观象经 [dsh_channels](https://github.com/modestoma/dsh_channels) 的 `feishuTopics` 服务在指定群里发一张分析卡（发起人、触发时间、应用、错误码和日志详情页表格），在卡片下开话题，把平台给的 prompt 原样交给一个新 Session（prompt 开头的斜杠命令由 DSH 展开成对应 SKILL，例如 `/guanxiang`），分析过程在话题内流式输出。分析结束后分析卡的状态标签随之更新，群里通过准入的成员都可以在该话题内追问。日志包地址写在 prompt 里，下载、解压、超时都由 prompt 调用的 SKILL 处理（Session 的沙箱需要能访问日志存储地址）。
+日志平台调用观象的分析接口：观象经 [dsh_channels](https://github.com/modestoma/dsh_channels) 的 `feishuTopics` 服务在指定群里发一张分析卡（发起人、触发时间、应用、错误码和日志详情页表格），在卡片下开话题，把平台给的 prompt 原样交给一个新 Session（prompt 开头的斜杠命令由 DSH 展开成对应 SKILL，例如 `/logalyze`），分析过程在话题内流式输出。分析结束后分析卡的状态标签随之更新，群里通过准入的成员都可以在该话题内追问。日志包地址写在 prompt 里，下载、解压、超时都由 prompt 调用的 SKILL 处理（Session 的沙箱需要能访问日志存储地址）。
 
 **前提**：
 
 - dsh_channels 已加载并提供 `feishuTopics` 服务（版本 1）。没有这个服务时观象不注册接口；服务版本不兼容时观象记一条警告，也不注册。设置面板「分析接口」分页显示飞书渠道是否就绪。
 - 只有带 Web 的 profile（web、desktop）有这个接口，headless 没有。
 
-**开启**：在设置面板「分析接口」打开开关（`analyze.enabled`，默认关，保存后立即生效），并在同一页保存访问令牌（建议 32 位以上随机串）。令牌存入 DSH 凭据库的 `GUANXIANG_ANALYZE_TOKEN`（名称可用 `analyzeTokenRef` 修改），也可以设置同名环境变量或写进 `.env`。接口挂在 DSH Web 服务上（与 Web 界面同一端口），路径 `/open-api/logalyze` 放在 DSH 的 `/api` 之外，网关可以把它与需要登录的 DSH 接口分开放行；DSH 通过反向代理挂在前缀下时，地址随之带上前缀（如 `https://<域名>/dsh/open-api/logalyze`）。该路由不走 DSH 登录 cookie，访问令牌是唯一凭据。开关关闭时所有请求返回 404；令牌每次请求都重新读取，轮换后下一次请求生效；令牌未设置时所有请求返回 503。
+**开启**：在设置面板「分析接口」打开开关（`analyze.enabled`，默认关，保存后立即生效），并在同一页保存访问令牌（建议 32 位以上随机串）。令牌存入 DSH 凭据库的 `LOGALYZE_ANALYZE_TOKEN`（名称可用 `analyzeTokenRef` 修改），也可以设置同名环境变量或写进 `.env`。接口挂在 DSH Web 服务上（与 Web 界面同一端口），路径 `/open-api/logalyze` 放在 DSH 的 `/api` 之外，网关可以把它与需要登录的 DSH 接口分开放行；DSH 通过反向代理挂在前缀下时，地址随之带上前缀（如 `https://<域名>/dsh/open-api/logalyze`）。该路由不走 DSH 登录 cookie，访问令牌是唯一凭据。开关关闭时所有请求返回 404；令牌每次请求都重新读取，轮换后下一次请求生效；令牌未设置时所有请求返回 503。
 
 **请求**：
 
@@ -207,7 +207,7 @@ Content-Type: application/json
     { "name": "设备 B 崩溃日志", "url": "https://logs.example.com/detail/2" }
   ],
   "chatId": "oc_xxx",
-  "prompt": "/guanxiang https://logs.example.com/1.zip https://logs.example.com/2.zip 请分析这些日志"
+  "prompt": "/logalyze https://logs.example.com/1.zip https://logs.example.com/2.zip 请分析这些日志"
 }
 ```
 
@@ -233,7 +233,7 @@ Content-Type: application/json
 
 ## 通过飞书使用
 
-在飞书里使用 `/guanxiang` 不需要观象与 [dsh_channels](https://github.com/modestoma/dsh_channels) 之间的任何接口：dsh_channels 把不在自己命令表中的 `/` 开头消息作为普通 prompt 交给 dsh，dsh 识别 `/guanxiang` 后展开入口 SKILL。飞书附件的宿主路径会出现在消息里，入口 SKILL 会把它作为日志路径派发。只有[日志平台分析接口](#日志平台分析接口)经 dsh_channels 的 `feishuTopics` 服务发卡开话题；观象只在开发时依赖 dsh_channels 的类型，运行时按服务名查找，没有加载 dsh_channels 时其余功能不受影响。
+在飞书里使用 `/logalyze` 不需要观象与 [dsh_channels](https://github.com/modestoma/dsh_channels) 之间的任何接口：dsh_channels 把不在自己命令表中的 `/` 开头消息作为普通 prompt 交给 dsh，dsh 识别 `/logalyze` 后展开入口 SKILL。飞书附件的宿主路径会出现在消息里，入口 SKILL 会把它作为日志路径派发。只有[日志平台分析接口](#日志平台分析接口)经 dsh_channels 的 `feishuTopics` 服务发卡开话题；观象只在开发时依赖 dsh_channels 的类型，运行时按服务名查找，没有加载 dsh_channels 时其余功能不受影响。
 
 ## 开发
 
@@ -253,14 +253,14 @@ pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + �
 | `main` | 手动 | 正式版，如 `0.1.0` | `latest` |
 | `dev` | 推送自动 | 预发布版，如 `0.1.0-beta.1` | `beta` |
 
-发布正式版：在 GitHub Actions 的 `pipeline` workflow 点击 **Run workflow** 并选择 `main`。`dry_run` 默认勾选，只预览下一个版本号；取消勾选才真正发布 npm 包、打 tag 并创建 GitHub Release。在 `dev` 上手动触发同样可用，用来预览或补发 beta。安装 beta 版用 `@modesto_ma/dsh-guanxiang@beta`。
+发布正式版：在 GitHub Actions 的 `pipeline` workflow 点击 **Run workflow** 并选择 `main`。`dry_run` 默认勾选，只预览下一个版本号；取消勾选才真正发布 npm 包、打 tag 并创建 GitHub Release。在 `dev` 上手动触发同样可用，用来预览或补发 beta。安装 beta 版用 `dsh-logalyze@beta`。
 
 | 路径 | 内容 |
 |---|---|
 | `src/index.ts` | Cordis 插件入口 |
 | `src/service.ts` | 生效设置、注册表、入口 SKILL 与派发工具的注册 |
 | `src/repos/` | dsh-repo 服务查找、应用描述校验、应用注册表 |
-| `src/skill/entry.ts` | `/guanxiang` 入口 SKILL |
+| `src/skill/entry.ts` | `/logalyze` 入口 SKILL |
 | `src/dispatch/` | 派发工具、日志下载、子 Agent 首条消息 |
 | `src/skill-update/` | SKILL 修改提议的校验、diff、授权与提交 |
 | `src/analyze/` | 日志平台分析接口：请求校验、令牌、到 `feishuTopics` 的转换 |
