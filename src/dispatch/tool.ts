@@ -31,7 +31,8 @@ import type { ChildLog } from './prompt.ts'
 /** Model-facing tool name. */
 export const DISPATCH_TOOL_NAME = 'logalyze_dispatch'
 
-const logSchema = z.union([
+/** One log item of a model request: a local path or a download URL, with an optional filter. */
+export const logSchema = z.union([
   z.object({ path: z.string().trim().min(1), filter: z.string().trim().min(1).optional() }).strict(),
   z.object({ url: z.string().trim().min(1), filter: z.string().trim().min(1).optional() }).strict(),
 ], { error: '每个日志项必须是 { path } 或 { url } 之一（可带 filter）' })
@@ -231,7 +232,12 @@ export function isDelegatedAgent(agent: Agent): boolean {
   return (agent.session.header.delegationDepth ?? 0) > 0
 }
 
-function newRunId(now: Date): string {
+/**
+ * A new run id: local timestamp plus a random suffix.
+ * @param now - current time.
+ * @returns `YYYYMMDD-HHMMSS-xxxxxx`.
+ */
+export function newRunId(now: Date): string {
   const pad = (value: number): string => String(value).padStart(2, '0')
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
   return `${stamp}-${randomBytes(3).toString('hex')}`
@@ -246,6 +252,81 @@ function newRunId(now: Date): string {
 export function isInside(child: string, parent: string): boolean {
   const path = relative(parent, child)
   return path === '' || (!path.startsWith('..') && !isAbsolute(path))
+}
+
+/** Where a top-level agent's run directories live. */
+export interface RunBase {
+  /** The agent's effective working directory; relative log paths resolve against it. */
+  readonly effectiveDir: string
+  /** Directory holding `.logalyze/runs/`: the effective directory when it lies in the project directory, else the project directory. */
+  readonly baseDir: string
+}
+
+/**
+ * Resolve where an agent's run directories go.
+ * @param parent - calling top-level agent.
+ * @param workingDirectory - the working-directory service, when the composition has one.
+ * @param signal - cancellation.
+ * @returns the effective and base directories.
+ * @throws when the session has no project directory.
+ */
+export async function resolveRunBase(parent: Agent, workingDirectory: WorkingDirectoryService | undefined, signal: AbortSignal): Promise<RunBase> {
+  const projectDir = parent.session.header.cwd
+  if (projectDir === undefined) throw new Error('当前会话没有项目目录，无法创建运行目录')
+  const effectiveDir = await workingDirectory?.ensure(parent, signal) ?? projectDir
+  return { effectiveDir, baseDir: isInside(effectiveDir, projectDir) ? effectiveDir : projectDir }
+}
+
+/** A checked log source: an existing local path or an admitted download URL. */
+export type LogSource =
+  | { readonly path: string; readonly url?: undefined; readonly filter?: string | undefined }
+  | { readonly url: string; readonly path?: undefined; readonly filter?: string | undefined }
+
+/**
+ * Check log items before anything starts: local paths must exist, URLs must
+ * pass the download policy.
+ * @param logs - validated log items.
+ * @param effectiveDir - directory relative paths resolve against.
+ * @param download - download policy.
+ * @returns the sources in order.
+ * @throws when a path is unreadable or a URL is not admitted.
+ */
+export async function admitLogs(logs: readonly z.output<typeof logSchema>[], effectiveDir: string, download: EditableSettings['download']): Promise<LogSource[]> {
+  return await Promise.all(logs.map(async (log): Promise<LogSource> => {
+    if ('url' in log) return { url: admitUrl(log.url, download).href, filter: log.filter }
+    const path = resolve(effectiveDir, log.path)
+    try {
+      await stat(path)
+    } catch (error) {
+      throw new Error(`日志路径不可读：${path}（${(error as NodeJS.ErrnoException).code ?? messageOf(error)}）`)
+    }
+    return { path, filter: log.filter }
+  }))
+}
+
+/**
+ * Turn admitted sources into local paths, downloading URLs into a run directory.
+ * @param sources - admitted sources.
+ * @param workDir - run directory receiving downloads.
+ * @param download - download policy.
+ * @param signal - cancellation.
+ * @param fetchImpl - fetch implementation.
+ * @returns the logs as handed to a child.
+ * @throws when a download fails.
+ */
+export async function materializeLogs(sources: readonly LogSource[], workDir: string, download: EditableSettings['download'], signal: AbortSignal, fetchImpl?: typeof fetch): Promise<ChildLog[]> {
+  const logs: ChildLog[] = []
+  for (const [position, source] of sources.entries()) {
+    const filter = source.filter === undefined ? {} : { filter: source.filter }
+    if (source.path !== undefined) {
+      logs.push({ path: source.path, ...filter })
+      continue
+    }
+    const name = `${position + 1}-${fileNameFor(new URL(source.url), 'log')}`
+    const file = await downloadLog(source.url, workDir, name, download, signal, fetchImpl)
+    logs.push({ path: file.path, url: source.url, ...filter })
+  }
+  return logs
 }
 
 function textOf(blocks: readonly ContentBlock[]): string {
@@ -298,21 +379,8 @@ export class Dispatcher {
     if (tasks.length > settings.maxAppsPerRequest) {
       throw new Error(`一次最多派发 ${settings.maxAppsPerRequest} 个任务，本次有 ${tasks.length} 个；请合并或分批`)
     }
-    const projectDir = parent.session.header.cwd
-    if (projectDir === undefined) throw new Error('当前会话没有项目目录，无法创建运行目录')
-    const effectiveDir = await this.deps.workingDirectory()?.ensure(parent, exec.signal) ?? projectDir
-    const baseDir = isInside(effectiveDir, projectDir) ? effectiveDir : projectDir
-
-    const sources = await Promise.all(tasks.map(task => Promise.all(task.logs.map(async (log) => {
-      if ('url' in log) return { url: admitUrl(log.url, settings.download).href, filter: log.filter }
-      const path = resolve(effectiveDir, log.path)
-      try {
-        await stat(path)
-      } catch (error) {
-        throw new Error(`日志路径不可读：${path}（${(error as NodeJS.ErrnoException).code ?? messageOf(error)}）`)
-      }
-      return { path, filter: log.filter }
-    }))))
+    const { effectiveDir, baseDir } = await resolveRunBase(parent, this.deps.workingDirectory(), exec.signal)
+    const sources = await Promise.all(tasks.map(task => admitLogs(task.logs, effectiveDir, settings.download)))
 
     const lease = await this.deps.registry.acquire(tasks.map(task => task.app))
     try {
@@ -324,18 +392,7 @@ export class Dispatcher {
         if (ready === undefined) throw new Error(`应用「${task.app}」不可用`)
         const workDir = join(runDir, `${index + 1}-${task.app}`)
         await mkdir(workDir, { recursive: true })
-        const logs: ChildLog[] = []
-        for (const [position, source] of (sources[index] ?? []).entries()) {
-          const filter = source.filter === undefined ? {} : { filter: source.filter }
-          if (source.path !== undefined) {
-            logs.push({ path: source.path, ...filter })
-            continue
-          }
-          const url = new URL(source.url)
-          const name = `${position + 1}-${fileNameFor(url, 'log')}`
-          const file = await downloadLog(source.url, workDir, name, settings.download, exec.signal, this.deps.fetch)
-          logs.push({ path: file.path, url: source.url, ...filter })
-        }
+        const logs = await materializeLogs(sources[index] ?? [], workDir, settings.download, exec.signal, this.deps.fetch)
         return { task, ready, workDir, logs }
       }))
       const proposals = this.deps.proposals?.enabled() === true ? this.deps.proposals : undefined

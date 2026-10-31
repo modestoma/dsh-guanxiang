@@ -99,8 +99,8 @@ describe('plugin', () => {
     cleanups.push(h.dispose)
     apply(h.ctx, { repos: [{ url: origin }] }, { overlayPath: join(dir, 'settings.json') })
     expect(h.skills.map(skill => skill.name)).toEqual(['dsh-logalyze'])
-    expect(h.tools.map(tool => tool.definition.name)).toEqual(['logalyze_dispatch', 'logalyze_propose_skill'])
-    const [tool, propose] = h.tools
+    expect(h.tools.map(tool => tool.definition.name)).toEqual(['logalyze_dispatch', 'logalyze_propose_skill', 'logalyze_add_repo', 'logalyze_init_repo', 'logalyze_submit_init'])
+    const [tool, propose, add, init, submit] = h.tools
     const signal = new AbortController().signal
     const step = (depth?: number) => ({ agent: { id: 'a', session: { header: { id: 'a', ...depth === undefined ? {} : { delegationDepth: depth } } } }, signal })
     // The condition waits for the first sync, so a step prepared during startup still sees the cloned application.
@@ -108,6 +108,11 @@ describe('plugin', () => {
     expect(await tool!.when?.(step(1))).toBe(false)
     // SKILL proposals are off by default.
     expect(await propose!.when?.(step())).toBe(false)
+    // Adding is always offered at the top level; drafting needs a repository without an application, submitting a draft.
+    expect(await add!.when?.(step())).toBe(true)
+    expect(await add!.when?.(step(1))).toBe(false)
+    expect(await init!.when?.(step())).toBe(false)
+    expect(await submit!.when?.(step())).toBe(false)
     const [candidate] = await h.skills[0]!.list({})
     expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`order-service`')
   })
@@ -126,6 +131,27 @@ describe('plugin', () => {
     expect(await propose!.when?.(step(1))).toBe(false)
     const [candidate] = await h.skills[0]!.list({})
     expect((await h.skills[0]!.get(candidate!, {}))?.content).toContain('`logalyze_propose_skill`')
+  })
+
+  it('adds a repository from a conversation into the panel settings and offers drafting while it lacks a description', async () => {
+    const { dir, cleanup } = await tempDir()
+    cleanups.push(cleanup)
+    const origin = await createAppRepo(join(dir, 'order-service'))
+    await commitFile(origin, '.agents/logalyze.yaml', 'not: [valid')
+    const approval = { request: vi.fn(async () => 'allowed-once' as const) }
+    const h = await harness({ approval })
+    cleanups.push(h.dispose)
+    const overlayPath = join(dir, 'settings.json')
+    apply(h.ctx, {}, { overlayPath })
+    const [, , add, init] = h.tools
+    const step = { agent: { id: 'a', session: { header: { id: 'a' } } }, signal: new AbortController().signal }
+    expect(await init!.when?.(step)).toBe(false)
+    const value = await add!.definition.execute({ url: origin }, step)
+    expect(value).toMatchObject({ status: 'added', setup: 'needs-setup' })
+    expect(JSON.parse(await readFile(overlayPath, 'utf8'))).toEqual({ repos: [{ url: origin }] })
+    const state = await json<StateWire>(await fetch(`${h.base}/logalyze/state`))
+    expect(state.repos).toMatchObject([{ url: origin, available: false }])
+    expect(await init!.when?.(step)).toBe(true)
   })
 
   it('refreshes repositories before rendering /logalyze, waiting at most refreshWaitMs', async () => {

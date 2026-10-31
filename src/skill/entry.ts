@@ -9,6 +9,7 @@
 import type { SkillDefinition, SkillProvider, SkillProviderControl } from '../host.ts'
 import type { AppManifest } from '../settings/contract.ts'
 import { DISPATCH_TOOL_NAME } from '../dispatch/tool.ts'
+import { ADD_REPO_TOOL_NAME } from '../onboard/names.ts'
 import { PROPOSE_TOOL_NAME } from '../skill-update/tool.ts'
 
 /** Entry skill name, addressed as `/logalyze`. */
@@ -56,7 +57,7 @@ function cell(text: string): string {
  */
 export function renderCatalog(apps: readonly AppManifest[]): string {
   if (apps.length === 0) {
-    return '当前没有可用的应用。请告诉用户：在 DSH Web 左侧栏「观象」面板的「应用仓库」中添加应用的 git 地址，并确认仓库已拉取成功、包含 `.agents/logalyze.yaml` 与对应的日志分析 SKILL。然后结束本次回复，不要自行分析日志。'
+    return `当前没有可用的应用，不要自行分析日志。用户给出了应用代码仓库的 git 地址时，用 \`${ADD_REPO_TOOL_NAME}\` 添加并按工具结果继续；否则请用户提供 git 地址，或在 DSH Web 左侧栏「观象」面板的「应用仓库」中添加，然后结束本次回复。`
   }
   const rows = apps.map(app => `| \`${app.id}\` | ${cell(app.name)} | ${cell(app.description)} | ${cell(app.aliases.join('、') || '—')} | ${cell(app.logHints.map(hint => `\`${hint}\``).join(' ') || '—')} |`)
   return ['| 应用 id | 名称 | 描述 | 别名 | 日志特征 |', '| --- | --- | --- | --- | --- |', ...rows].join('\n')
@@ -90,7 +91,7 @@ ${renderCatalog(apps)}
 
 1. **读需求。** 从 \`/logalyze\` 之后的文字、消息附带的附件、消息里的下载 URL 中找出：要分析的现象、时间范围、关键标识（用户 id、订单号、请求 id 等）、日志位置。
 2. **确定应用。** 拆分单位是「日志来源 → 应用」。
-   - 用户或调用方已经写明应用 id 时直接使用；该 id 不在上表中时，告诉用户这个应用未注册（列出可用的应用 id），然后结束，不要改用别的应用。
+   - 用户或调用方已经写明应用 id 时直接使用；该 id 不在上表中时，告诉用户这个应用未注册（列出可用的应用 id），然后结束，不要改用别的应用。用户给出了该应用的 git 地址时，可以用 \`${ADD_REPO_TOOL_NAME}\` 接入。
    - 否则按名称、别名、描述和日志特征匹配。只有附件文件名或内容能区分时，可以只看日志开头几十行来判断，不要通读或解压整个日志。
    - 用户没有输入 \`/logalyze\`、是你按任务匹配自行加载了本 SKILL，而日志明显不属于上表任何应用时，不要派发也不要追问，按普通方式完成用户的请求。
    - 其余无法确定或同时匹配多个应用的情况，用 \`ask_user_question\`（不可用时直接在回复中提问并结束）让用户选择，不要猜。

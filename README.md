@@ -64,6 +64,7 @@
 - **代码快照不可变。** 子 Agent 在 `dshRepos` 服务按提交创建的只读快照里工作，派发期间持有快照，结束后释放。
 - **运行目录。** 每次派发在父会话目录下创建 `.logalyze/runs/<runId>/<序号>-<应用 id>/`，下载的日志放在这里，子 Agent 也只在这里写文件；应用仓库对子 Agent 只读。
 - **等待式派发。** 工具等待所有子 Agent 结束后一次返回，一条消息对应一张完整回复；超过派发超时或调用被取消时停止仍在运行的子 Agent。子会话中不提供派发工具。
+- **在对话中接入仓库。** 用户给出 git 地址时，模型可以经用户授权把它加入应用仓库列表；仓库缺少应用描述或 SKILL 时，派一个子 Agent 读代码起草，经授权后经 `dshRepos` 服务提交为合并请求，见[在对话中接入仓库](#在对话中接入仓库)。
 - **SKILL 改进（可选，默认关闭）。** 子 Agent 发现应用的日志分析 SKILL 有欠缺时，可以在运行目录写出修改提议；经用户授权后，观象经 `dshRepos` 服务把它提交到应用仓库的新分支并创建合并请求（GitLab MR 或 GitHub PR），见 [SKILL 改进](#skill-改进)。
 
 ## 安装与配置
@@ -174,6 +175,18 @@ skill: log-analysis             # 对应 .agents/skills/log-analysis/SKILL.md
 - 合并请求以该主机令牌主人的身份创建，提交作者是 `skillUpdateAuthor`，省略时也是令牌主人。飞书群里点「允许」的人可能不是令牌主人；合并请求描述写明了来源会话与分析提交。
 - 日志内容不可信，可能诱导模型写出不当的 SKILL。观象只限制改动范围，内容需要授权的人和合并请求的评审者把关。
 
+## 在对话中接入仓库
+
+除了在设置面板添加，用户也可以在对话里说「把 git@gitlab.example.com:shop/order.git 接入观象」。顶层 Agent 有三个工具，子会话中都不提供：
+
+| 工具 | 何时提供 | 做什么 |
+|---|---|---|
+| `logalyze_add_repo` | 总是 | 参数为 git 地址和可选分支。经用户一次性授权后写入与面板相同的 `settings.json`，等待第一次拉取结束，返回应用可用、需要起草或拉取失败的原因。地址已在列表中时不请求授权，只重新拉取 |
+| `logalyze_init_repo` | 有仓库已拉取但缺少应用描述或 SKILL 时 | 参数为 git 地址、可选的用户说明和样例日志（`path` 或白名单内的 `url`）。在最新提交的只读快照里启动一个起草子 Agent，把 `logalyze.yaml` 和一个日志分析 SKILL（大型仓库按领域拆到 `references/`）写到运行目录 `.logalyze/runs/<runId>/init/repo-init/`，结束后检查初稿并写出 `repo-init.diff`，不提交 |
+| `logalyze_submit_init` | 本会话有起草结果时 | 参数为起草的运行目录。重新检查初稿，经用户一次性授权后以起草时的提交为起点建新分支 `logalyze/init-<应用 id>-<改动摘要前缀>`，提交 `.agents/` 下有改动的文件，并创建合入跟踪分支的合并请求 |
+
+初稿的检查规则与拉取时相同：`logalyze.yaml` 合法，SKILL 存在、frontmatter 的 `name` 等于 `skill` 字段、不设置 `user-invocable: false`，应用 id 不与其他仓库重复；初稿只能包含 `logalyze.yaml` 和它指定的 `skills/<skill>/` 下的文件，文件数和大小上限沿用 `skillUpdates.maxFiles` 与 `maxFileBytes`（不需要开启 SKILL 改进）。起草子 Agent 的等待上限是 `dispatchTimeoutMs`。授权、令牌权限、提交作者（`skillUpdateAuthor`）和合并请求的规则与 [SKILL 改进](#skill-改进) 相同；合并后下一次 `/logalyze` 拉取即启用该应用。用户拒绝提交时，初稿文件仍在运行目录中，可以手动提交。
+
 ## 日志平台分析接口
 
 日志平台调用观象的分析接口：观象经 [dsh_channels](https://github.com/modestoma/dsh_channels) 的 `feishuTopics` 服务在指定群里发一张分析卡（发起人、触发时间、应用、错误码和日志详情页表格），在卡片下开话题，把平台给的 prompt 原样交给一个新 Session（prompt 开头的斜杠命令由 DSH 展开成对应 SKILL，例如 `/logalyze`），分析过程在话题内流式输出。分析结束后分析卡的状态标签随之更新，群里通过准入的成员都可以在该话题内追问。日志包地址写在 prompt 里，下载、解压、超时都由 prompt 调用的 SKILL 处理（Session 的沙箱需要能访问日志存储地址）。
@@ -254,11 +267,12 @@ pnpm check        # 类型检查（Host 与 Client）+ 单元测试 + 构建 + �
 | 路径 | 内容 |
 |---|---|
 | `src/index.ts` | Cordis 插件入口 |
-| `src/service.ts` | 生效设置、注册表、入口 SKILL 与派发工具的注册 |
+| `src/service.ts` | 生效设置、注册表、入口 SKILL 与各工具的注册 |
 | `src/repos/` | `dshRepos` 服务需求与查找、应用描述校验、应用注册表 |
 | `src/skill/entry.ts` | `/logalyze` 入口 SKILL |
 | `src/dispatch/` | 派发工具、日志下载、子 Agent 首条消息 |
 | `src/skill-update/` | SKILL 修改提议的校验、diff、授权与提交 |
+| `src/onboard/` | 在对话中添加仓库、起草应用描述与 SKILL、提交接入合并请求 |
 | `src/analyze/` | 日志平台分析接口：请求校验、令牌、到 `feishuTopics` 的转换 |
 | `src/settings/` | 面板契约、覆盖文件、HTTP 路由 |
 | `src/client/` | 左侧栏入口与设置页面 |
